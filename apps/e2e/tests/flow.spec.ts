@@ -11,6 +11,16 @@ test("fluxo completo: registrar, criar carreira, simular rodada, ver tabela", as
   await page.getByLabel("Senha").fill("secret1");
   await page.getByRole("button", { name: "Criar conta" }).click();
   await expect(page.getByRole("heading", { name: "Nova carreira" })).toBeVisible();
+  await expect(page.locator(".club-results .club-choice")).toHaveCount(60);
+  await page.getByLabel("Buscar clube, cidade ou estado").fill("Flamengo");
+  await expect(page.locator(".club-results .club-choice")).toHaveCount(1);
+  await page.getByLabel("Buscar clube, cidade ou estado").fill("");
+  await page.getByRole("button", { name: "Série C" }).click();
+  await expect(page.locator(".club-results .club-choice")).toHaveCount(20);
+  await page.getByRole("button", { name: "Todos" }).click();
+  await page.getByLabel("Letra A").click();
+  await expect(page.locator(".club-results .club-choice")).not.toHaveCount(0);
+  await page.getByLabel("Todas as letras").click();
 
   // criar carreira (cai no Escritório)
   await page.getByRole("button", { name: "Athletico Paranaense" }).click();
