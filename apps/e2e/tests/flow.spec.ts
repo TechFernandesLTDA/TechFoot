@@ -14,7 +14,14 @@ test("fluxo completo: registrar, criar carreira, simular rodada, ver tabela", as
 
   // criar carreira (cai no Escritório)
   await page.getByRole("button", { name: "Athletico Paranaense" }).click();
+  await page.getByRole("button", { name: "Assumir este clube" }).click();
   await expect(page.getByText("Rodada 1", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Elenco" }).first().click();
+  await expect(page.getByText("Banco, capitão e substituições")).toBeVisible();
+  await page.getByLabel("Formação").selectOption("4-4-2");
+  await page.getByRole("button", { name: "Salvar plano" }).click();
+  await page.getByRole("button", { name: "Escritório" }).click();
 
   // simular
   await page.getByRole("button", { name: "Simular rodada" }).click();

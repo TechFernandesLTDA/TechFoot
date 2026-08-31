@@ -2,6 +2,8 @@ const json = (r: Response) => r.json();
 
 export type Tactic = "offensive" | "balanced" | "defensive";
 export type User = { id: string; email: string; name: string };
+export type SubstitutionPlan = { minute: number; playerOutId: string; playerInId: string };
+export type MatchPlan = { starterIds: string[]; benchIds: string[]; formation: Formation; captainId: string; substitutions: SubstitutionPlan[] };
 export type AdminControls = {
   ticketPrice: number;
   membershipFee: number;
@@ -36,7 +38,7 @@ export const api = {
   saves: () => req<{ id: string; name: string }[]>("/saves"),
   createSave: (clubId: string) => req<{ id: string; name: string; career: Career }>("/saves", { method: "POST", body: JSON.stringify({ clubId }) }),
   getSave: (id: string) => req<{ id: string; name: string; career: Career }>(`/saves/${id}`),
-  lineup: (id: string, starterIds: string[]) => req<{ career: Career }>(`/saves/${id}/lineup`, { method: "PUT", body: JSON.stringify({ starterIds }) }),
+  lineup: (id: string, plan: MatchPlan | string[]) => req<{ career: Career }>(`/saves/${id}/lineup`, { method: "PUT", body: JSON.stringify(Array.isArray(plan) ? { starterIds: plan } : plan) }),
   tactic: (id: string, tactic: Tactic) => req<{ career: Career }>(`/saves/${id}/tactic`, { method: "PUT", body: JSON.stringify({ tactic }) }),
   admin: (id: string, patch: Partial<Omit<AdminControls, "membershipCount" | "debt">>) => req<{ career: Career }>(`/saves/${id}/admin`, { method: "PUT", body: JSON.stringify(patch) }),
   loan: (id: string, amount: number) => req<{ career: Career }>(`/saves/${id}/admin/loan`, { method: "POST", body: JSON.stringify({ amount }) }),
@@ -48,6 +50,8 @@ export const api = {
 };
 
 export type Position = "GK" | "DF" | "MF" | "FW";
+export type Formation = "4-3-3" | "4-4-2" | "3-5-2" | "5-3-2" | "4-2-3-1";
+export type PlayerSkills = { pace: number; finishing: number; passing: number; marking: number; tackling: number; handling: number; stamina: number; leadership: number };
 export type MatchResult = {
   homeId: string;
   awayId: string;
@@ -57,9 +61,10 @@ export type MatchResult = {
   shots: { home: number; away: number };
   cards: { home: { yellow: number; red: number }; away: { yellow: number; red: number } };
   injuries: string[];
+  substitutions: { minute: number; teamId: string; playerOutId: string; playerInId: string }[];
 };
 export type Player = {
-  id: string; name: string; nationality: string; position: Position; strength: number;
+  id: string; name: string; nationality: string; position: Position; preferredPositions: Position[]; age: number; xp: number; skills: PlayerSkills; fitness: number; morale: number; strength: number;
   salary: number; contractGames: number; behavior: number; injuredGames: number;
   yellows: number; reds: number; goals: number; matches: number; suspendedGames: number;
 };
@@ -70,7 +75,8 @@ export type Club = {
 };
 export type InboxMessage = { id: string; kind: string; title: string; body: string; read: boolean };
 export type Career = {
-  clubId: string; division: 1 | 2 | 3; season: number; round: number; tactic: Tactic; starterIds: string[];
+  clubId: string; division: 1 | 2 | 3; season: number; round: number; tactic: Tactic; formation: Formation; captainId: string; starterIds: string[]; benchIds: string[];
+  substitutions: { minute: number; playerOutId: string; playerInId: string }[];
   admin: AdminControls;
   clubs: Club[]; table: { clubId: string; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number }[];
   fixtures: { round: number; homeId: string; awayId: string; played: boolean; result?: MatchResult }[];

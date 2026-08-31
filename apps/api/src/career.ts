@@ -5,7 +5,7 @@ import {
   evolvePlayer, leagueAverageStrength, MATCH_PRIZE, mulberry32, nextCupSlot, playerValue, prizeFor,
   resolvePenalties, weeklyWages, simulateMatch,
   type AdminControls, type Club, type CupFixture, type Fixture, type InboxMessage,
-  type LedgerEntry, type MatchResult, type Standing, type Tactic,
+  type Formation, type LedgerEntry, type MatchResult, type Standing, type SubstitutionPlan, type Tactic,
 } from "@techfoot/engine";
 
 export type Career = {
@@ -14,7 +14,11 @@ export type Career = {
   season: number;
   round: number;
   tactic: Tactic;
+  formation: Formation;
+  captainId: string;
   starterIds: string[];
+  benchIds: string[];
+  substitutions: SubstitutionPlan[];
   clubs: Club[];
   table: Standing[];
   fixtures: Fixture[];
@@ -34,6 +38,7 @@ export type Career = {
 };
 
 export type AdminPatch = Partial<Omit<AdminControls, "membershipCount" | "debt">>;
+export type MatchPlan = { starterIds: string[]; benchIds?: string[]; formation?: Formation; captainId?: string; substitutions?: SubstitutionPlan[] };
 
 const worldPath = fileURLToPath(new URL("../../../data/world/liga-br.json", import.meta.url));
 
@@ -80,9 +85,35 @@ function defaultAdmin(club: Club): AdminControls {
 }
 
 export function normalizeCareer(career: Career): Career {
+  for (const club of career.clubs) {
+    club.state ??= "BR";
+    club.division ??= 2;
+    club.tactic ??= "balanced";
+    club.rep ??= 50;
+    for (const player of club.players) {
+      const strength = player.strength ?? 25;
+      player.preferredPositions ??= [player.position];
+      player.age ??= 24;
+      player.xp ??= 0;
+      player.skills ??= { pace: strength * 2, finishing: strength * 2, passing: strength * 2, marking: strength * 2, tackling: strength * 2, handling: strength * 2, stamina: strength * 2, leadership: strength * 2 };
+      player.fitness ??= 90;
+      player.morale ??= 70;
+      player.goals ??= 0;
+      player.matches ??= 0;
+      player.suspendedGames ??= 0;
+    }
+  }
   const club = career.clubs.find((item) => item.id === career.clubId);
   if (club && !career.admin) career.admin = defaultAdmin(club);
   if (!career.admin && club) career.admin = defaultAdmin(club);
+  if (club) {
+    const starters = career.starterIds?.length ? career.starterIds : defaultStarters(club.players);
+    career.starterIds = starters;
+    career.formation ??= "4-3-3";
+    career.captainId ??= starters[0];
+    career.benchIds ??= club.players.map((player) => player.id).filter((id) => !starters.includes(id)).slice(0, 5);
+    career.substitutions ??= [];
+  }
   return career;
 }
 
@@ -102,7 +133,11 @@ export function createCareer(clubId: string, season = 2026): Career {
     season,
     round: 1,
     tactic: "balanced",
+    formation: "4-3-3",
+    captainId: defaultStarters(myClub.players)[0],
     starterIds: defaultStarters(myClub.players),
+    benchIds: myClub.players.map((player) => player.id).filter((id) => !defaultStarters(myClub.players).includes(id)).slice(0, 5),
+    substitutions: [],
     clubs,
     table: emptyStandings(divisionClubIds),
     fixtures: fixturesForDivision(divisionClubIds, myClub.division),
@@ -153,7 +188,10 @@ function applyCardsAndSuspensions(career: Career, result: MatchResult): void {
       const club = m.get(e.teamId);
       const p = club?.players.find((x) => x.id === e.playerId);
       if (!p) continue;
-      if (e.kind === "yellow") p.yellows += 1;
+      if (e.kind === "yellow") {
+        p.yellows += 1;
+        if (p.yellows % 3 === 0) p.suspendedGames = Math.max(p.suspendedGames, 1);
+      }
       else {
         p.reds += 1;
         p.suspendedGames = 1;
@@ -163,7 +201,7 @@ function applyCardsAndSuspensions(career: Career, result: MatchResult): void {
       // injuredGames já setado na simulação; garantir mínimo
       const club = m.get(e.teamId);
       const p = club?.players.find((x) => x.id === e.playerId);
-      if (p && p.injuredGames === 0) p.injuredGames = 1 + Math.floor(Math.random() * 3);
+      if (p && p.injuredGames === 0) p.injuredGames = 1 + (e.minute % 3);
     }
   }
 }
@@ -186,8 +224,21 @@ function simulateMatchCtx(career: Career, home: Club, away: Club, seed: number):
   const starterHome = home.id === career.clubId ? career.starterIds : defaultStarters(home.players);
   const starterAway = away.id === career.clubId ? career.starterIds : defaultStarters(away.players);
   const result = simulateMatch(
-    { club: home, starterIds: starterHome, tactic: home.tactic },
-    { club: away, starterIds: starterAway, tactic: away.tactic },
+    {
+      club: home,
+      starterIds: starterHome,
+      benchIds: home.id === career.clubId ? career.benchIds : undefined,
+      captainId: home.id === career.clubId ? career.captainId : undefined,
+      substitutions: home.id === career.clubId ? career.substitutions : undefined,
+      tactic: home.tactic,
+      formation: home.id === career.clubId ? career.formation : "4-3-3",
+    },
+    {
+      club: away,
+      starterIds: starterAway,
+      tactic: away.tactic,
+      formation: away.id === career.clubId ? career.formation : "4-3-3",
+    },
     seed,
   );
   applyCardsAndSuspensions(career, result);
@@ -195,7 +246,7 @@ function simulateMatchCtx(career: Career, home: Club, away: Club, seed: number):
   for (const pid of result.injuries) {
     const club = clubMap(career.clubs).get(findClubOf(career, pid));
     const p = club?.players.find((x) => x.id === pid);
-    if (p && p.injuredGames === 0) p.injuredGames = 1 + Math.floor(Math.random() * 3);
+    if (p && p.injuredGames === 0) p.injuredGames = 1 + (seed % 3);
   }
   return result;
 }
@@ -508,6 +559,28 @@ export function setTactic(career: Career, tactic: Tactic): Career {
   if (!myClub) throw httpError("Clube não encontrado", 404);
   myClub.tactic = tactic;
   career.tactic = tactic;
+  return career;
+}
+
+export function setMatchPlan(career: Career, plan: MatchPlan): Career {
+  const club = clubMap(career.clubs).get(career.clubId);
+  if (!club) throw httpError("Clube não encontrado", 404);
+  if (new Set(plan.starterIds).size !== 11) throw httpError("A escalação precisa de 11 jogadores diferentes", 400);
+  const playerMap = new Map(club.players.map((player) => [player.id, player]));
+  const starters = plan.starterIds.map((id) => playerMap.get(id));
+  if (starters.some((player) => !player)) throw httpError("A escalação contém jogador inválido", 400);
+  if (starters.some((player) => player!.injuredGames > 0 || player!.suspendedGames > 0)) throw httpError("Não é possível escalar jogador indisponível", 400);
+  const benchIds = [...new Set(plan.benchIds ?? club.players.map((player) => player.id).filter((id) => !plan.starterIds.includes(id)).slice(0, 5))];
+  if (benchIds.length > 5 || benchIds.some((id) => !playerMap.has(id)) || benchIds.some((id) => plan.starterIds.includes(id))) throw httpError("Banco de reservas inválido", 400);
+  const captainId = plan.captainId ?? plan.starterIds[0];
+  if (!plan.starterIds.includes(captainId)) throw httpError("O capitão precisa ser titular", 400);
+  const substitutions = plan.substitutions ?? [];
+  if (substitutions.some((change) => !plan.starterIds.includes(change.playerOutId) || !benchIds.includes(change.playerInId) || change.playerOutId === change.playerInId)) throw httpError("Substituição inválida", 400);
+  career.starterIds = plan.starterIds;
+  career.benchIds = benchIds;
+  career.formation = plan.formation ?? career.formation;
+  career.captainId = captainId;
+  career.substitutions = substitutions;
   return career;
 }
 

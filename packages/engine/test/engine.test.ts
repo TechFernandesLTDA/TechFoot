@@ -7,7 +7,9 @@ import {
 
 function player(id: string, position: Position, strength: number, nationality = "BRA"): Player {
   return {
-    id, name: id, nationality, position, strength, salary: 1000, contractGames: 20,
+    id, name: id, nationality, position, preferredPositions: [position], age: 24, xp: 50,
+    skills: { pace: 50, finishing: 50, passing: 50, marking: 50, tackling: 50, handling: 50, stamina: 50, leadership: 50 },
+    fitness: 90, morale: 70, strength, salary: 1000, contractGames: 20,
     behavior: 3, injuredGames: 0, yellows: 0, reds: 0, goals: 0, matches: 0, suspendedGames: 0,
   };
 }
@@ -112,5 +114,15 @@ describe("engine", () => {
     const ids = Array.from({ length: 60 }, (_, index) => `club-${index}`);
     assert.deepEqual(cupBracket(ids, 99), cupBracket(ids, 99));
     assert.equal(cupBracket(ids, 99)[0].length, 30);
+  });
+
+  it("applies a planned substitution during the match", () => {
+    const players = [...squad("h", 35), player("sub", "FW", 30, "BRA")];
+    const home = club("h", players);
+    const away = club("a", squad("a", 35));
+    const homeSide = { ...side(home), benchIds: ["sub"], substitutions: [{ minute: 60, playerOutId: "h8", playerInId: "sub" }] };
+    const result = simulateMatch(homeSide, side(away), 123);
+    assert.equal(result.substitutions.length, 1);
+    assert.equal(result.substitutions[0].playerInId, "sub");
   });
 });

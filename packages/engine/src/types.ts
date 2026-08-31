@@ -1,14 +1,21 @@
 export type Position = "GK" | "DF" | "MF" | "FW";
 export type Tactic = "offensive" | "balanced" | "defensive";
+export type Formation = "4-3-3" | "4-4-2" | "3-5-2" | "5-3-2" | "4-2-3-1";
 export type EventKind =
   | "goal" | "saved" | "post" | "crossbar" | "miss" | "whistle"
-  | "yellow" | "red" | "injury" | "foul";
+  | "yellow" | "red" | "injury" | "foul" | "substitution";
 
 export interface Player {
   id: string;
   name: string;
   nationality: string;
   position: Position;
+  preferredPositions: Position[];
+  age: number;
+  xp: number;
+  skills: PlayerSkills;
+  fitness: number;
+  morale: number;
   strength: number;
   salary: number;
   contractGames: number;
@@ -19,6 +26,17 @@ export interface Player {
   goals: number;
   matches: number;
   suspendedGames: number;
+}
+
+export interface PlayerSkills {
+  pace: number;
+  finishing: number;
+  passing: number;
+  marking: number;
+  tackling: number;
+  handling: number;
+  stamina: number;
+  leadership: number;
 }
 
 export interface Club {
@@ -76,6 +94,13 @@ export interface MatchResult {
   cards: Cards;
   injuries: string[];
   seed: number;
+  substitutions: { minute: number; teamId: string; playerOutId: string; playerInId: string }[];
+}
+
+export interface SubstitutionPlan {
+  minute: number;
+  playerOutId: string;
+  playerInId: string;
 }
 
 export interface Standing {

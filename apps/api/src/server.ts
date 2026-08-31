@@ -7,7 +7,7 @@ import { prisma } from "./db.ts";
 import { hashPassword, readToken, signToken, verifyPassword } from "./auth.ts";
 import {
   buyPlayer, createCareer, httpError, loadWorld, renewContract, sellPlayer, simulateRound, setTactic, takeLoan,
-  updateAdmin, normalizeCareer,
+  updateAdmin, normalizeCareer, setMatchPlan,
   type Career,
 } from "./career.ts";
 
@@ -24,7 +24,13 @@ const registerSchema = z.object({
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
 const tacticSchema = z.object({ tactic: z.enum(["offensive", "balanced", "defensive"]) });
 const playerIdSchema = z.object({ playerId: z.string().min(1) });
-const lineupSchema = z.object({ starterIds: z.array(z.string()).length(11) });
+const matchPlanSchema = z.object({
+  starterIds: z.array(z.string()).length(11),
+  benchIds: z.array(z.string()).max(5).optional(),
+  formation: z.enum(["4-3-3", "4-4-2", "3-5-2", "5-3-2", "4-2-3-1"]).optional(),
+  captainId: z.string().min(1).optional(),
+  substitutions: z.array(z.object({ minute: z.number().int().min(46).max(89), playerOutId: z.string().min(1), playerInId: z.string().min(1) })).max(5).optional(),
+});
 const adminSchema = z.object({
   ticketPrice: z.number().optional(),
   membershipFee: z.number().optional(),
@@ -150,8 +156,8 @@ app.get("/saves/:id", async (req) => {
 
 app.put("/saves/:id/lineup", async (req) => {
   const { save, career } = await loadSave(req as never);
-  const { starterIds } = validate(lineupSchema, req.body);
-  career.starterIds = starterIds;
+  const plan = validate(matchPlanSchema, req.body);
+  setMatchPlan(career, plan);
   await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(career) } });
   return { career };
 });

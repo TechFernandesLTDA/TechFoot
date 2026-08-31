@@ -1,5 +1,5 @@
 import { FormEvent, type ReactNode, useEffect, useState } from "react";
-import { api, type AdminControls, type Career, type Club, type MatchResult, type Player, type Tactic, type User } from "./api";
+import { api, type AdminControls, type Career, type Club, type Formation, type MatchResult, type Player, type Tactic, type User } from "./api";
 import { tr, type Lang, type TKey } from "./i18n";
 
 type Tab = "home" | "squad" | "fixtures" | "cup" | "market" | "finance" | "inbox" | "league" | "competitions" | "admin" | "report";
@@ -19,6 +19,10 @@ export function App() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [lang, setLang] = useState<Lang>("pt");
   const [busy, setBusy] = useState(false);
+  const [clubSearch, setClubSearch] = useState("");
+  const [clubDivision, setClubDivision] = useState<"all" | 1 | 2 | 3>("all");
+  const [clubLetter, setClubLetter] = useState("all");
+  const [selectedClubId, setSelectedClubId] = useState("");
 
   useEffect(() => {
     api.me().then(setUser).catch(() => setUser(null));
@@ -108,6 +112,15 @@ export function App() {
     setSave((current) => current ? { ...current, career } : current);
   }
 
+  const filteredClubs = world.filter((club) => {
+    const term = normalizeSearch(clubSearch);
+    const matchesTerm = !term || normalizeSearch(`${club.name} ${club.city} ${club.state}`).includes(term);
+    const matchesDivision = clubDivision === "all" || club.division === clubDivision;
+    const matchesLetter = clubLetter === "all" || normalizeSearch(club.name).startsWith(clubLetter.toLowerCase());
+    return matchesTerm && matchesDivision && matchesLetter;
+  });
+  const selectedClub = world.find((club) => club.id === selectedClubId);
+
   if (!user) {
     return <AuthScreen lang={lang} mode={mode} busy={busy} error={error} setLang={setLang} setMode={setMode} onSubmit={onAuth} />;
   }
@@ -121,11 +134,11 @@ export function App() {
           <section className="panel panel--dark lobby-welcome">
             <div className="eyebrow">TEMPORADA 2026 / CENTRAL DE CARREIRAS</div>
             <h2>Seu próximo capítulo começa no banco.</h2>
-            <p>Escolha um projeto, monte seu elenco e transforme uma equipe fictícia em uma potência nacional.</p>
+            <p>Escolha um projeto, monte seu elenco e transforme um clube brasileiro em uma potência nacional.</p>
             <div className="feature-row">
-              <Stat label="Clubes" value="16" />
-              <Stat label="Divisões" value="02" />
-              <Stat label="Jogadores" value="256" />
+              <Stat label="Clubes" value="60" />
+              <Stat label="Divisões" value="03" />
+              <Stat label="Jogadores" value="960" />
             </div>
           </section>
           <section className="panel lobby-saves" aria-label={tr(lang, "careers")}>
@@ -138,17 +151,7 @@ export function App() {
               </div>
             )}
           </section>
-          <section className="panel panel--cream club-picker" aria-label={tr(lang, "newCareer")}>
-            <SectionHeading eyebrow="NOVO ARQUIVO" title={tr(lang, "newCareer")} />
-            <p className="panel-lead">Selecione seu desafio. A camisa é fictícia, a pressão é real.</p>
-            <div className="club-grid">
-              {world.map((club) => <button className="club-choice" key={club.id} onClick={() => createCareer(club.id)} disabled={busy}>
-                <span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span>
-                <span className="club-choice__copy"><strong>{club.name}</strong><small>{club.city} · {divisionLabel(club.division)}</small></span>
-                <Icon name="arrow" />
-              </button>)}
-            </div>
-          </section>
+          <ClubPicker lang={lang} clubs={filteredClubs} selected={selectedClub} search={clubSearch} division={clubDivision} letter={clubLetter} busy={busy} setSearch={setClubSearch} setDivision={setClubDivision} setLetter={setClubLetter} selectClub={setSelectedClubId} createCareer={createCareer} />
         </main>
       </div>
     );
@@ -174,7 +177,7 @@ export function App() {
             {navItems.slice(0, 5).map((item) => <button key={item.tab} className={tab === item.tab ? "is-active" : ""} aria-current={tab === item.tab ? "page" : undefined} onClick={() => setTab(item.tab)}><Icon name={item.icon} /><span>{label(item.tab, lang)}</span></button>)}
           </div>
           {tab === "home" && <Home save={save} onSetTab={setTab} onSimulate={simulate} busy={busy} />}
-          {tab === "squad" && <Squad save={save} withSave={withSave} busy={busy} />}
+          {tab === "squad" && <><Squad save={save} withSave={withSave} busy={busy} /><SquadPlanBar save={save} withSave={withSave} busy={busy} /><PlayerInsights career={save.career} /></>}
           {tab === "fixtures" && <Fixtures save={save} />}
           {tab === "cup" && <Cup save={save} />}
           {tab === "market" && <Market save={save} withSave={withSave} busy={busy} />}
@@ -231,7 +234,41 @@ function Squad({ save, withSave, busy }: { save: { id: string; career: Career };
   return <div className="page"><PageIntro eyebrow="GESTÃO DO ELENCO" title="O time começa aqui." subtitle={`${sel.length}/11 titulares selecionados · tática define o risco.`} action={<button className="primary-cta primary-cta--compact" disabled={busy || sel.length !== 11} onClick={() => withSave(() => api.lineup(save.id, sel))}>Salvar escalação <Icon name="arrow" /></button>} /><div className="squad-layout"><section className="panel pitch-panel"><div className="panel-kicker">CAMPO TÁTICO <span>{TACTIC_LABEL[save.career.tactic].toUpperCase()}</span></div><div className="tactic-select"><span>Instrução</span><select value={save.career.tactic} onChange={(e) => withSave(() => api.tactic(save.id, e.target.value as Tactic))}><option value="balanced">Equilibrado</option><option value="offensive">Ofensivo</option><option value="defensive">Defensivo</option></select></div><div className="pitch"><div className="pitch-line pitch-line--top" /><div className="pitch-circle" /><div className="pitch-box pitch-box--top" /><div className="pitch-box pitch-box--bottom" /><div className="pitch-players pitch-players--attack">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "FW").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--mid">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "MF").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--def">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "DF").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--keeper">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "GK").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div></div><div className="pitch-legend"><span><i className="legend-dot legend-dot--first" />Titular</span><span><i className="legend-dot legend-dot--second" />Posição</span></div></section><section className="panel squad-list-panel"><div className="panel-kicker">PLANTEL PRINCIPAL <span>{c.players.length} ATLETAS</span></div><div className="squad-filter"><span>ESCALAÇÃO ATUAL</span><strong>{sel.length === 11 ? "PRONTA PARA JOGAR" : "INCOMPLETA"}</strong></div><div className="player-list">{players.map((player) => { const selected = sel.includes(player.id); return <button className={`player-row ${selected ? "is-selected" : ""}`} key={player.id} onClick={() => toggle(player.id)} disabled={player.injuredGames > 0 || player.suspendedGames > 0}><span className="player-number">{positionLabel(player.position)}</span><span className="player-avatar">{initials(player.name)}</span><span className="player-main"><strong>{player.name}</strong><small>{selected ? "TITULAR" : "RESERVA"} · {condition(player)}</small></span><span className="player-rating">{player.strength}<small>FOR</small></span><span className={`status-dot ${selected ? "status-dot--active" : ""}`} /></button>; })}</div></section></div></div>;
 }
 
+function PlayerInsights({ career }: { career: Career }) {
+  const club = myClub(career);
+  const featured = club.players.filter((player) => career.starterIds.includes(player.id)).slice(0, 6);
+  return <section className="panel insights-panel"><SectionHeading eyebrow="RELATÓRIO INDIVIDUAL" title="Cada jogador tem uma história" /><div className="insight-grid">{featured.map((player) => { const key: keyof Player["skills"] = player.position === "GK" ? "handling" : player.position === "DF" ? "marking" : player.position === "MF" ? "passing" : "finishing"; const label = player.position === "GK" ? "DEFESA" : player.position === "DF" ? "MARCAÇÃO" : player.position === "MF" ? "PASSE" : "FINALIZAÇÃO"; return <article className="insight-card" key={player.id}><div className="insight-card__head"><span className="player-avatar">{initials(player.name)}</span><div><strong>{player.name}</strong><small>{positionLabel(player.position)} · {player.age} anos</small></div><b>{player.xp}<small>XP</small></b></div><div className="skill-line"><span>{label}</span><b>{player.skills[key]}</b></div><div className="skill-bar"><i style={{ width: `${player.skills[key]}%` }} /></div><div className="skill-meta"><span>Condição {player.fitness}%</span><span>Humor {player.morale}</span></div></article>; })}</div></section>;
+}
+
+function SquadPlanBar({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) {
+  const club = myClub(save.career);
+  const [formation, setFormation] = useState<Formation>(save.career.formation);
+  const [captain, setCaptain] = useState(save.career.captainId);
+  const [bench, setBench] = useState<string[]>(save.career.benchIds);
+  const [substitutions, setSubstitutions] = useState(save.career.substitutions);
+  useEffect(() => {
+    setFormation(save.career.formation);
+    setCaptain(save.career.captainId);
+    setBench(save.career.benchIds);
+    setSubstitutions(save.career.substitutions);
+  }, [save.career.formation, save.career.captainId, save.career.benchIds, save.career.substitutions]);
+  const reservePool = club.players.filter((player) => !save.career.starterIds.includes(player.id));
+  const addSubstitution = () => {
+    const playerOutId = save.career.starterIds.find((id) => club.players.some((player) => player.id === id && player.position !== "GK"));
+    const playerInId = bench.find((id) => !substitutions.some((change) => change.playerInId === id));
+    if (playerOutId && playerInId && substitutions.length < 5) setSubstitutions([...substitutions, { minute: 60 + substitutions.length * 5, playerOutId, playerInId }]);
+  };
+  return <section className="panel plan-panel"><div className="plan-heading"><div><div className="eyebrow">PLANO DE JOGO</div><h3>Banco, capitão e substituições</h3></div><button className="primary-cta primary-cta--compact" disabled={busy} onClick={() => withSave(() => api.lineup(save.id, { starterIds: save.career.starterIds, benchIds: bench, formation, captainId: captain, substitutions }))}>Salvar plano <Icon name="arrow" /></button></div><div className="plan-grid"><label className="field field--dark"><span>Formação</span><select value={formation} onChange={(event) => setFormation(event.target.value as Formation)}><option>4-3-3</option><option>4-4-2</option><option>3-5-2</option><option>5-3-2</option><option>4-2-3-1</option></select></label><label className="field field--dark"><span>Capitão</span><select value={captain} onChange={(event) => setCaptain(event.target.value)}>{club.players.filter((player) => save.career.starterIds.includes(player.id)).map((player) => <option value={player.id} key={player.id}>{player.name} · liderança {player.skills.leadership}</option>)}</select></label><div className="bench-control"><span className="eyebrow">RESERVAS ({bench.length}/5)</span><div className="bench-list">{reservePool.map((player) => <button className={bench.includes(player.id) ? "bench-player is-selected" : "bench-player"} key={player.id} onClick={() => setBench(bench.includes(player.id) ? bench.filter((id) => id !== player.id) : bench.length < 5 ? [...bench, player.id] : bench)} disabled={player.injuredGames > 0 || player.suspendedGames > 0}><span className="player-avatar">{initials(player.name)}</span><span>{player.name}<small>{positionLabel(player.position)} · {player.strength} FOR</small></span></button>)}</div></div><div className="sub-control"><span className="eyebrow">SUBSTITUIÇÕES PROGRAMADAS</span><div className="sub-list">{substitutions.map((change) => <span className="sub-chip" key={`${change.playerOutId}-${change.minute}`}>{change.minute}' {lastName(playerShortObject(club, change.playerOutId))} → {lastName(playerShortObject(club, change.playerInId))}</span>)}</div><button className="ghost-button" onClick={addSubstitution} disabled={bench.length === 0 || substitutions.length >= 5}>+ Adicionar troca</button></div></div></section>;
+}
+
+function playerShortObject(club: Club, id: string): string { return club.players.find((player) => player.id === id)?.name ?? id; }
+
 function PlayerToken({ player }: { player: Player }) { return <span className="pitch-token" title={player.name}><b>{positionLabel(player.position)}</b><small>{lastName(player.name)}</small></span>; }
+
+function ClubPicker({ lang, clubs, selected, search, division, letter, busy, setSearch, setDivision, setLetter, selectClub, createCareer }: { lang: Lang; clubs: { id: string; name: string; city: string; state: string; division: number }[]; selected?: { id: string; name: string; city: string; state: string; division: number }; search: string; division: "all" | 1 | 2 | 3; letter: string; busy: boolean; setSearch: (value: string) => void; setDivision: (value: "all" | 1 | 2 | 3) => void; setLetter: (value: string) => void; selectClub: (id: string) => void; createCareer: (id: string) => void }) {
+  const letters = ["all", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
+  return <section className="panel panel--cream club-picker" aria-label={tr(lang, "newCareer")}><div className="picker-heading"><SectionHeading eyebrow="NOVO ARQUIVO" title={tr(lang, "newCareer")} /><span className="picker-count">{clubs.length} resultados</span></div><p className="panel-lead">Busque o clube, filtre a divisão e confirme o projeto que você vai administrar.</p><div className="club-search"><span className="search-mark">/</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar clube, cidade ou estado" aria-label="Buscar clube, cidade ou estado" /><kbd>⌘ K</kbd></div><div className="filter-row" role="group" aria-label="Filtros de clubes">{(["all", 1, 2, 3] as const).map((value) => <button key={value} className={division === value ? "filter-button is-active" : "filter-button"} onClick={() => setDivision(value)}>{value === "all" ? "Todos" : `Série ${value === 1 ? "A" : value === 2 ? "B" : "C"}`}</button>)}</div><div className="letter-filter" aria-label="Filtrar por letra">{letters.map((value) => <button key={value} className={letter === value ? "is-active" : ""} aria-label={value === "all" ? "Todas as letras" : `Letra ${value}`} onClick={() => setLetter(value)}>{value === "all" ? "#" : value}</button>)}</div><div className="club-results">{clubs.length === 0 ? <EmptyState icon="users" title="Nenhum clube encontrado" text="Tente outro nome, estado ou remova um filtro." /> : clubs.map((club) => <button className={selected?.id === club.id ? "club-choice is-selected" : "club-choice"} key={club.id} aria-label={club.name} aria-pressed={selected?.id === club.id} onClick={() => selectClub(club.id)} disabled={busy}><span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span><span className="club-choice__copy"><strong>{club.name}</strong><small>{club.state} · {divisionLabel(club.division)}</small></span><Icon name="arrow" /></button>)}</div><div className="selected-club-bar">{selected ? <div className="selected-club-copy"><span className="club-crest crest--${selected.division}"><span>{abbr(selected.name)}</span></span><span><small>PROJETO SELECIONADO</small><strong>{selected.name}</strong></span></div> : <span className="muted">Selecione um clube para continuar.</span>}<button className="primary-cta primary-cta--compact" disabled={!selected || busy} onClick={() => selected && createCareer(selected.id)}>Assumir este clube <Icon name="arrow" /></button></div></section>;
+}
 
 function Fixtures({ save }: { save: { id: string; career: Career } }) { const c = myClub(save.career); return <div className="page"><PageIntro eyebrow="CALENDÁRIO" title="A temporada não espera." subtitle="Planeje cada rodada, casa ou fora." /><section className="panel table-panel"><div className="table-toolbar"><SectionHeading eyebrow="LIGA NACIONAL TECHFOOT" title="Todos os jogos" /><span className="table-count">{save.career.fixtures.filter((f) => f.played).length} jogados</span></div><div className="responsive-table"><table><thead><tr><th>RODADA</th><th>MANDANTE</th><th></th><th>VISITANTE</th><th>PLACAR</th><th>STATUS</th></tr></thead><tbody>{save.career.fixtures.map((fixture, index) => { const mine = fixture.homeId === c.id || fixture.awayId === c.id; return <tr className={mine ? "is-highlighted" : ""} key={index}><td><span className="round-tag">R{fixture.round}</span></td><td>{clubName(save.career, fixture.homeId)}</td><td className="versus-cell">×</td><td>{clubName(save.career, fixture.awayId)}</td><td className="score-cell">{fixture.result ? `${fixture.result.homeGoals} — ${fixture.result.awayGoals}` : "—"}</td><td><span className={`status-badge ${fixture.played ? "status-badge--done" : "status-badge--next"}`}>{fixture.played ? "ENCERRADO" : "AGENDADO"}</span></td></tr>; })}</tbody></table></div></section></div>; }
 
@@ -297,6 +334,7 @@ function divisionLabel(division: number): string { return division === 1 ? "Sér
 function playerShort(career: Career, id: string): string { for (const club of career.clubs) { const player = club.players.find((item) => item.id === id); if (player) return player.name; } return id; }
 function abbr(value: string): string { return value.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase().slice(0, 3); }
 function abbreviated(value: string): string { return value.length > 19 ? `${value.slice(0, 17)}…` : value; }
+function normalizeSearch(value: string): string { return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
 function initials(value: string): string { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function lastName(value: string): string { return value.split(/\s+/).at(-1) ?? value; }
 function positionLabel(position: string): string { return position === "GK" ? "GOL" : position; }
