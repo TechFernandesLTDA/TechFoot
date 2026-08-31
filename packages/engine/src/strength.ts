@@ -25,8 +25,9 @@ export function sectorPower(
       const skill = sector === "GK" ? p.skills.handling : sector === "DF" ? (p.skills.marking + p.skills.tackling) / 2 : sector === "MF" ? (p.skills.passing + p.skills.stamina) / 2 : (p.skills.finishing + p.skills.pace) / 2;
       const ageFactor = p.age < 19 ? 0.88 : p.age > 32 ? 0.92 : 1;
       const availability = Math.max(0.55, Math.min(1, p.fitness / 100)) * (0.85 + p.morale / 666);
+      const versatility = p.preferredPositions.length > 1 ? 1.02 : 1;
       const technicalPower = p.strength * 1.4 + skill * 0.35 + p.xp * 0.15;
-      return sum + technicalPower * ageFactor * availability + local;
+      return sum + technicalPower * ageFactor * availability * versatility + local;
     }, 0);
 }
 

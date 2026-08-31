@@ -12,7 +12,7 @@ import {
 } from "./career.ts";
 
 const app = Fastify({ logger: true });
-await app.register(cors, { origin: true, credentials: true });
+await app.register(cors, { origin: process.env.WEB_ORIGIN ?? true, credentials: true });
 await app.register(cookie);
 await app.register(rateLimit, { global: false });
 
@@ -43,6 +43,7 @@ const adminSchema = z.object({
   scoutingBudget: z.number().optional(),
 });
 const loanSchema = z.object({ amount: z.number().int().positive() });
+const saveSchema = z.object({ clubId: z.string().min(1), name: z.string().trim().min(1).max(80).optional() });
 
 type AuthedReq = { cookies: Record<string, string | undefined> };
 
@@ -103,6 +104,12 @@ app.get("/world", async () => {
   return {
     name: world.name,
     seasons: [{ id: "2026", name: "2026" }],
+    stats: {
+      clubs: world.clubs.length,
+      divisions: new Set(world.clubs.map((club) => club.division)).size,
+      players: world.clubs.reduce((total, club) => total + club.players.length, 0),
+      stateCompetitions: world.stateCompetitions.length,
+    },
     stateCompetitions: world.stateCompetitions,
     clubs: world.clubs.map((c) => ({
       id: c.id, name: c.name, city: c.city, state: c.state, colors: c.colors, stadiumName: c.stadiumName, division: c.division,
@@ -131,8 +138,7 @@ app.get("/saves", async (req) => {
 
 app.post("/saves", async (req, reply) => {
   const userId = userIdFrom(req);
-  const body = req.body as { clubId?: string; name?: string };
-  if (!body.clubId) return reply.code(400).send({ error: "clubId obrigatório" });
+  const body = validate(saveSchema, req.body);
   const activeSave = await prisma.save.findFirst({ where: { userId, active: true }, select: { id: true } });
   if (activeSave) return reply.code(409).send({ error: "Sua carreira já está vinculada a um clube" });
   const career = createCareer(body.clubId);

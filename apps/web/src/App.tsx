@@ -13,6 +13,7 @@ export function App() {
   const [error, setError] = useState("");
   const [saves, setSaves] = useState<{ id: string; name: string }[]>([]);
   const [world, setWorld] = useState<{ id: string; name: string; city: string; state: string; division: number }[]>([]);
+  const [worldStats, setWorldStats] = useState({ clubs: 0, divisions: 0, players: 0, stateCompetitions: 0 });
   const [stateCompetitions, setStateCompetitions] = useState<{ id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[]>([]);
   const [worldLoading, setWorldLoading] = useState(true);
   const [save, setSave] = useState<{ id: string; name: string; career: Career } | null>(null);
@@ -36,6 +37,7 @@ export function App() {
       .then(([nextSaves, nextWorld]) => {
         setSaves(nextSaves);
         setWorld(nextWorld.clubs);
+        setWorldStats(nextWorld.stats);
         setStateCompetitions(nextWorld.stateCompetitions);
       })
       .catch((err: Error) => setError(err.message))
@@ -136,12 +138,12 @@ export function App() {
         <main className="lobby-grid">
           <section className="panel panel--dark lobby-welcome">
             <div className="eyebrow">TEMPORADA 2026 / CENTRAL DE CARREIRAS</div>
-            <h2>Seu próximo capítulo começa no banco.</h2>
+            <h2>Seu próximo<br />capítulo começa<br />no banco.</h2>
             <p>Escolha um projeto, monte seu elenco e transforme um clube brasileiro em uma potência nacional.</p>
             <div className="feature-row">
-              <Stat label="Clubes" value="60" />
-              <Stat label="Divisões" value="03" />
-              <Stat label="Jogadores" value="960" />
+              <Stat label="Clubes" value={worldLoading ? "--" : String(worldStats.clubs)} />
+              <Stat label="Divisões" value={worldLoading ? "--" : String(worldStats.divisions).padStart(2, "0")} />
+              <Stat label="Jogadores" value={worldLoading ? "--" : String(worldStats.players)} />
             </div>
           </section>
           <section className="panel lobby-saves" aria-label={tr(lang, "careers")}>
@@ -173,7 +175,7 @@ export function App() {
               <Icon name={item.icon} /><span>{label(item.tab, lang)}</span>{item.tab === "inbox" && unread > 0 ? <b>{unread}</b> : null}
             </button>)}
           </nav>
-          <div className="sidebar__season"><span>SEASON STATUS</span><strong>{save.career.season}</strong><small>Rodada {save.career.round} de 14</small><div className="progress"><i style={{ width: `${Math.min(100, (save.career.round / 14) * 100)}%` }} /></div></div>
+          <div className="sidebar__season"><span>SEASON STATUS</span><strong>{save.career.season}</strong><small>Rodada {save.career.round} de {roundCount(save.career)}</small><div className="progress"><i style={{ width: `${Math.min(100, (save.career.round / roundCount(save.career)) * 100)}%` }} /></div></div>
         </aside>
         <main className="main-content">
           <div className="mobile-tabs" aria-label="Navegação móvel">
@@ -355,5 +357,6 @@ function positionLabel(position: string): string { return position === "GK" ? "G
 function condition(player: Player): string { return player.injuredGames > 0 ? `Lesionado · ${player.injuredGames}j` : player.suspendedGames > 0 ? `Suspenso · ${player.suspendedGames}j` : "Disponível"; }
 function mood(value: number): string { return value >= 80 ? "vestiário confiante" : value >= 60 ? "ambiente estável" : "atenção ao ambiente"; }
 function positionOf(career: Career): number { const index = career.table.findIndex((row) => row.clubId === career.clubId); return index >= 0 ? index + 1 : career.table.length; }
+function roundCount(career: Career): number { return Math.max(1, ...career.fixtures.map((fixture) => fixture.round)); }
 function resultClass(result: MatchResult, clubId: string): string { const won = result.homeId === clubId ? result.homeGoals > result.awayGoals : result.awayGoals > result.homeGoals; const draw = result.homeGoals === result.awayGoals; return won ? "form-pill--win" : draw ? "form-pill--draw" : "form-pill--loss"; }
 function resultLetter(result: MatchResult, clubId: string): string { const kind = resultClass(result, clubId); return kind.includes("win") ? "V" : kind.includes("draw") ? "E" : "D"; }

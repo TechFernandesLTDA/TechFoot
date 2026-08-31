@@ -52,8 +52,6 @@ export function simulateMatch(home: Side, away: Side, seed: number): MatchResult
   const formationAway = away.formation ?? "4-3-3";
   const tacticHome = home.tactic ?? "balanced";
   const tacticAway = away.tactic ?? "balanced";
-  const homeCaptain = home.club.players.find((p) => p.id === home.captainId)?.skills.leadership ?? 0;
-  const awayCaptain = away.club.players.find((p) => p.id === away.captainId)?.skills.leadership ?? 0;
   const cards: Cards = { home: { yellow: 0, red: 0 }, away: { yellow: 0, red: 0 } };
   const matchYellows = new Map<string, number>();
   const sentOff = new Set<string>();
@@ -96,6 +94,7 @@ export function simulateMatch(home: Side, away: Side, seed: number): MatchResult
         sentOff.add(player.id);
         if (side === "home") homeActive = homeActive.filter((item) => item.id !== player.id);
         else awayActive = awayActive.filter((item) => item.id !== player.id);
+        push("yellow", minute, side, teamId, player.id);
         push("red", minute, side, teamId, player.id);
       } else {
         push("yellow", minute, side, teamId, player.id);
@@ -145,8 +144,10 @@ export function simulateMatch(home: Side, away: Side, seed: number): MatchResult
   for (let minute = 1; minute <= 90; minute++) {
     applySubstitutions(minute, "home", home.substitutions, home.club.id);
     applySubstitutions(minute, "away", away.substitutions, away.club.id);
-    const homePower = effectivePowers(homeActive, home.club.country, tacticHome, home.club.morale, formationHome, homeCaptain);
-    const awayPower = effectivePowers(awayActive, away.club.country, tacticAway, away.club.morale, formationAway, awayCaptain);
+    const currentHomeCaptain = homeActive.find((player) => player.id === home.captainId)?.skills.leadership ?? 0;
+    const currentAwayCaptain = awayActive.find((player) => player.id === away.captainId)?.skills.leadership ?? 0;
+    const homePower = effectivePowers(homeActive, home.club.country, tacticHome, home.club.morale, formationHome, currentHomeCaptain);
+    const awayPower = effectivePowers(awayActive, away.club.country, tacticAway, away.club.morale, formationAway, currentAwayCaptain);
     const homeChance = rng() * 6000 < homePower.atk || rng() < 1 / 180;
     const awayChance = rng() * 7000 < awayPower.atk || rng() < 1 / 270;
     if (homeChance) {

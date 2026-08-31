@@ -5,7 +5,7 @@ import {
   evolvePlayer, leagueAverageStrength, MATCH_PRIZE, mulberry32, nextCupSlot, playerValue, prizeFor,
   resolvePenalties, weeklyWages, simulateMatch,
   type AdminControls, type Club, type CupFixture, type Fixture, type InboxMessage,
-  type Formation, type LedgerEntry, type MatchResult, type Standing, type SubstitutionPlan, type Tactic,
+  type Formation, type LedgerEntry, type MatchResult, type Player, type Standing, type SubstitutionPlan, type Tactic,
 } from "@techfoot/engine";
 
 export type Career = {
@@ -30,6 +30,7 @@ export type Career = {
   admin: AdminControls;
   ledger: LedgerEntry[];
   market: { playerId: string; clubId: string | null; price: number }[];
+  freeAgents: Player[];
   inbox: InboxMessage[];
   news: string[];
   lastRoundEvents: MatchResult | null;
@@ -57,6 +58,17 @@ function newMessage(career: Career, id: string, kind: string, title: string, bod
 
 function clubMap(clubs: Club[]): Map<string, Club> {
   return new Map(clubs.map((c) => [c.id, c]));
+}
+
+function repairPlan(career: Career): void {
+  const club = clubMap(career.clubs).get(career.clubId);
+  if (!club) return;
+  const valid = new Set(club.players.map((player) => player.id));
+  const starters = career.starterIds.filter((id) => valid.has(id) && !club.players.find((player) => player.id === id)?.injuredGames && !club.players.find((player) => player.id === id)?.suspendedGames);
+  career.starterIds = starters.length === 11 ? starters : defaultStarters(club.players);
+  career.benchIds = career.benchIds.filter((id) => valid.has(id) && !career.starterIds.includes(id)).slice(0, 5);
+  career.captainId = career.starterIds.includes(career.captainId) ? career.captainId : career.starterIds[0];
+  career.substitutions = career.substitutions.filter((change) => career.starterIds.includes(change.playerOutId) && career.benchIds.includes(change.playerInId));
 }
 
 function divisionLabel(division: 1 | 2 | 3): string {
@@ -105,7 +117,6 @@ export function normalizeCareer(career: Career): Career {
   }
   const club = career.clubs.find((item) => item.id === career.clubId);
   if (club && !career.admin) career.admin = defaultAdmin(club);
-  if (!career.admin && club) career.admin = defaultAdmin(club);
   if (club) {
     const starters = career.starterIds?.length ? career.starterIds : defaultStarters(club.players);
     career.starterIds = starters;
@@ -114,6 +125,7 @@ export function normalizeCareer(career: Career): Career {
     career.benchIds ??= club.players.map((player) => player.id).filter((id) => !starters.includes(id)).slice(0, 5);
     career.substitutions ??= [];
   }
+  career.freeAgents ??= [];
   return career;
 }
 
@@ -126,6 +138,7 @@ export function createCareer(clubId: string, season = 2026): Career {
   const divisionClubIds = clubs.filter((c) => c.division === myClub.division).map((c) => c.id);
   const seed = Date.now() % 1_000_000_000;
   const cupTeams = cupBracket(clubs.map((c) => c.id), seed);
+  const starters = defaultStarters(myClub.players);
 
   const career: Career = {
     clubId,
@@ -134,9 +147,9 @@ export function createCareer(clubId: string, season = 2026): Career {
     round: 1,
     tactic: "balanced",
     formation: "4-3-3",
-    captainId: defaultStarters(myClub.players)[0],
-    starterIds: defaultStarters(myClub.players),
-    benchIds: myClub.players.map((player) => player.id).filter((id) => !defaultStarters(myClub.players).includes(id)).slice(0, 5),
+    captainId: starters[0],
+    starterIds: starters,
+    benchIds: myClub.players.map((player) => player.id).filter((id) => !starters.includes(id)).slice(0, 5),
     substitutions: [],
     clubs,
     table: emptyStandings(divisionClubIds),
@@ -148,6 +161,7 @@ export function createCareer(clubId: string, season = 2026): Career {
     admin: defaultAdmin(myClub),
     ledger: [{ label: "Caixa inicial", amount: myClub.cash }],
     market: [],
+    freeAgents: [],
     inbox: [],
     news: [],
     lastRoundEvents: null,
@@ -167,7 +181,7 @@ function refreshMarket(career: Career): void {
       entries.set(p.id, { playerId: p.id, clubId: club.id, price: playerValue(p) });
     }
   }
-  // jogadores livres (sem clube) também entram
+  for (const player of career.freeAgents) entries.set(player.id, { playerId: player.id, clubId: null, price: playerValue(player) });
   career.market = [...entries.values()];
 }
 
@@ -268,6 +282,10 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
   const roundRng = mulberry32(seed + career.round * 7919);
   const clubs = career.clubs;
   const map = clubMap(clubs);
+  for (const club of clubs) for (const player of club.players) {
+    player.injuredGames = Math.max(0, player.injuredGames - 1);
+    player.suspendedGames = Math.max(0, player.suspendedGames - 1);
+  }
   let userMatch: MatchResult | null = null;
   let homeCount = 0;
   let awayCount = 0;
@@ -329,16 +347,24 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
   const rng = mulberry32(seed + 555);
   if (userMatch) {
     const resultFor = userMatch.homeGoals > userMatch.awayGoals ? "win" : userMatch.homeGoals === userMatch.awayGoals ? "draw" : "loss";
+    const playedIds = new Set([...
+      career.starterIds,
+      ...userMatch.substitutions.filter((change) => change.teamId === myClub.id).map((change) => change.playerInId),
+    ]);
     for (const p of myClub.players) {
-      const played = (userMatch.homeId === career.clubId ? userMatch.homeGoals + userMatch.awayGoals >= 0 : true) && career.starterIds.includes(p.id);
+      const played = playedIds.has(p.id);
       if (played) {
         const d = evolvePlayer(p, resultFor, avg, rng);
         if (d && d.note === "evoluiu") {
           newMessage(career, `ev-${p.id}`, "evo", "Evolução de força", `${p.name} evoluiu para ${p.strength}.`);
         }
+        p.xp = Math.min(100, p.xp + (resultFor === "win" ? 4 : resultFor === "draw" ? 2 : 1));
+        p.fitness = Math.max(0, p.fitness - (p.age > 30 ? 5 : 3));
+        p.morale = Math.max(0, Math.min(100, p.morale + (resultFor === "win" ? 3 : resultFor === "loss" ? -3 : 1)));
+      } else {
+        p.fitness = Math.min(100, p.fitness + 4);
       }
       p.contractGames -= 1;
-      p.suspendedGames = Math.max(0, p.suspendedGames - 1);
       p.matches += (played ? 1 : 0);
     }
   }
@@ -354,9 +380,10 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
     for (const id of toRelease) {
       for (const club of clubs) {
         const idx = club.players.findIndex((p) => p.id === id);
-        if (idx >= 0) club.players.splice(idx, 1);
+        if (idx >= 0) career.freeAgents.push(club.players.splice(idx, 1)[0]);
       }
     }
+    repairPlan(career);
     newMessage(career, `rel-${career.round}`, "contract", "Contratos encerrados", `${toRelease.length} jogador(es) deixaram os clubes e estão livres no mercado.`);
   }
 
@@ -547,6 +574,8 @@ function endOfSeason(career: Career): void {
       p.suspendedGames = 0;
       p.yellows = 0;
       p.reds = 0;
+      p.age += 1;
+      p.fitness = Math.min(100, p.fitness + 15);
     }
     c.morale = 65;
     c.tactic = "balanced";
@@ -575,7 +604,13 @@ export function setMatchPlan(career: Career, plan: MatchPlan): Career {
   const captainId = plan.captainId ?? plan.starterIds[0];
   if (!plan.starterIds.includes(captainId)) throw httpError("O capitão precisa ser titular", 400);
   const substitutions = plan.substitutions ?? [];
-  if (substitutions.some((change) => !plan.starterIds.includes(change.playerOutId) || !benchIds.includes(change.playerInId) || change.playerOutId === change.playerInId)) throw httpError("Substituição inválida", 400);
+  const substitutionOuts = new Set<string>();
+  const substitutionIns = new Set<string>();
+  for (const change of substitutions) {
+    if (!plan.starterIds.includes(change.playerOutId) || !benchIds.includes(change.playerInId) || change.playerOutId === change.playerInId || substitutionOuts.has(change.playerOutId) || substitutionIns.has(change.playerInId)) throw httpError("Substituição inválida", 400);
+    substitutionOuts.add(change.playerOutId);
+    substitutionIns.add(change.playerInId);
+  }
   career.starterIds = plan.starterIds;
   career.benchIds = benchIds;
   career.formation = plan.formation ?? career.formation;
@@ -639,6 +674,8 @@ export function sellPlayer(career: Career, playerId: string): Career {
   const myClub = clubMap(career.clubs).get(career.clubId)!;
   const idx = myClub.players.findIndex((x) => x.id === playerId);
   if (idx < 0) throw httpError("Jogador não está no seu elenco", 404);
+  if (myClub.players.length <= 11) throw httpError("O elenco precisa manter pelo menos 11 jogadores", 400);
+  if (career.starterIds.includes(playerId)) throw httpError("Retire o jogador da escalação antes de vender", 400);
   const p = myClub.players[idx];
   const value = aiTransferPrice(p);
   myClub.players.splice(idx, 1);
@@ -658,15 +695,17 @@ export function buyPlayer(career: Career, playerId: string): Career {
   }
   const src = clubMap(career.clubs);
   const owner = career.clubs.find((c) => c.players.some((p) => p.id === playerId));
-  if (!owner) throw httpError("Jogador não encontrado", 404);
+  const freeAgent = career.freeAgents.find((p) => p.id === playerId);
+  if (!owner && !freeAgent) throw httpError("Jogador não encontrado", 404);
   const myClub = src.get(career.clubId)!;
-  const p = owner.players.find((x) => x.id === playerId)!;
+  const p = owner?.players.find((x) => x.id === playerId) ?? freeAgent!;
   const price = playerValue(p);
   if (myClub.cash < price) throw httpError("Caixa insuficiente", 400);
   const marketEntry = career.market.find((m) => m.playerId === playerId);
   const actual = marketEntry ? marketEntry.price : price;
   if (myClub.players.length >= 22) throw httpError("Elenco cheio (máx. 22)", 400);
-  owner.players.splice(owner.players.findIndex((x) => x.id === playerId), 1);
+  if (owner) owner.players.splice(owner.players.findIndex((x) => x.id === playerId), 1);
+  else career.freeAgents.splice(career.freeAgents.findIndex((x) => x.id === playerId), 1);
   myClub.cash -= actual;
   p.contractGames = 20;
   myClub.players.push(p);

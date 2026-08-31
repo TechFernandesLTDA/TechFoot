@@ -34,7 +34,7 @@ export const api = {
   register: (name: string, email: string, password: string) =>
     req<User>("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) }),
   logout: () => req("/auth/logout", { method: "POST" }),
-  world: () => req<{ name: string; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[]; clubs: { id: string; name: string; city: string; state: string; colors: string[]; division: number }[] }>("/world"),
+  world: () => req<{ name: string; stats: { clubs: number; divisions: number; players: number; stateCompetitions: number }; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[]; clubs: { id: string; name: string; city: string; state: string; colors: string[]; division: number }[] }>("/world"),
   saves: () => req<{ id: string; name: string }[]>("/saves"),
   createSave: (clubId: string) => req<{ id: string; name: string; career: Career }>("/saves", { method: "POST", body: JSON.stringify({ clubId }) }),
   getSave: (id: string) => req<{ id: string; name: string; career: Career }>(`/saves/${id}`),
@@ -85,6 +85,7 @@ export type Career = {
   finances: number;
   ledger: { round?: number; label: string; amount: number }[];
   market: { playerId: string; clubId: string | null; price: number }[];
+  freeAgents: Player[];
   inbox: InboxMessage[];
   news: string[];
   lastRoundEvents: MatchResult | null;
