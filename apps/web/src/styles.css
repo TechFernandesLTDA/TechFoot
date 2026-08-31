@@ -400,6 +400,7 @@ tr.is-highlighted td { background: rgba(240, 189, 98, 0.1); color: var(--gold-so
 .letter-filter button { min-width: 24px; min-height: 27px; padding: 0; }
 .club-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: 1; min-height: 0; gap: 5px; overflow-y: auto; padding: 10px 2px 10px 0; scrollbar-color: #8d6929 rgba(18, 36, 30, 0.08); }
 .club-results .club-choice { min-height: 54px; }
+.club-skeleton { min-height: 54px; border: 1px solid rgba(18, 36, 30, 0.1); background: linear-gradient(100deg, rgba(18, 36, 30, 0.08) 35%, rgba(255, 255, 255, 0.4) 50%, rgba(18, 36, 30, 0.08) 65%); background-size: 220% 100%; animation: skeleton-shimmer 1.2s linear infinite; }
 .club-choice.is-selected { border-color: #8d6929; background: rgba(240, 189, 98, 0.22); }
 .selected-club-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 68px; padding-top: 11px; border-top: 1px solid rgba(18, 36, 30, 0.16); }
 .selected-club-copy { display: flex; align-items: center; gap: 9px; min-width: 0; }
@@ -468,6 +469,7 @@ input[type="range"] { width: 100%; height: 5px; accent-color: var(--gold); curso
 @keyframes reveal-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes message-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes draw-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@keyframes skeleton-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 
 @media (max-width: 1100px) {
   .app { padding-right: 22px; padding-left: 22px; }
@@ -530,6 +532,7 @@ input[type="range"] { width: 100%; height: 5px; accent-color: var(--gold); curso
   .club-results { grid-template-columns: 1fr; max-height: none; }
   .selected-club-bar { align-items: stretch; flex-direction: column; }
   .selected-club-bar .primary-cta { width: 100%; }
+  .picker-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
   .catalog-grid, .state-grid { grid-template-columns: 1fr; }
   .admin-overview, .control-grid { grid-template-columns: 1fr; }
   .bench-list { grid-template-columns: repeat(2, 1fr); }
