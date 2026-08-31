@@ -7,5 +7,12 @@
   "background_color": "#0d3b2e",
   "theme_color": "#0d3b2e",
   "lang": "pt-BR",
-  "icons": []
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

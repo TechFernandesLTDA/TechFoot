@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" fill="#0d3b2e"/>
+  <path d="M20 20h88v88H20z" fill="none" stroke="#f0bd62" stroke-width="4" transform="rotate(-4 64 64)"/>
+  <text x="64" y="77" fill="#f0bd62" font-family="monospace" font-size="34" font-weight="700" text-anchor="middle">TF</text>
+</svg>
