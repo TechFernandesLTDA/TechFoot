@@ -1,0 +1,20 @@
+{
+  "name": "techfoot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Jogo singleplayer de gerenciamento de futebol no browser — Tech Fernandes LTDA",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test -w @techfoot/engine",
+    "dev:api": "npm run dev -w @techfoot/api",
+    "dev:web": "npm run dev -w @techfoot/web",
+    "db:push": "npm run db:push -w @techfoot/api"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
+}

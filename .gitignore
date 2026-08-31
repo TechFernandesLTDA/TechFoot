@@ -1,0 +1,13 @@
+node_modules
+dist
+build
+.DS_Store
+*.log
+.env
+.env.local
+apps/api/dev.db
+apps/api/dev.db-journal
+apps/api/prisma/*.db
+coverage
+.vite
+*.tsbuildinfo
