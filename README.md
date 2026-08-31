@@ -8,12 +8,15 @@ Org: [TechFernandesLTDA](https://github.com/TechFernandesLTDA) · MIT
 ## O que tem hoje
 
 - Conta com e-mail e senha (Google e telefone ficam para depois)
-- 2 divisões (Série A/B) com **16 clubes fictícios** e 256 jogadores
+- **60 clubes brasileiros** das séries A, B e C de 2026, com nomes reais e jogadores fictícios
+- **27 catálogos estaduais** com formato configurável e classificação para a Copa do Brasil
 - **Motor determinístico** (seed): partida minuto a minuto, mando de campo, duelo, cartões, lesões, evolução de força
 - **Tática** (ofensivo / equilibrado / defensivo) e **moral** do clube afetando o desempenho
 - **Copa** mata-mola com pênaltis, intercalada na temporada
 - **Fim de temporada**: campeão, prêmios, acesso e rebaixamento, novo calendário
 - **Economia**: bilheteria, folha salarial, prêmios, compra/venda e renovação de jogadores
+- **Administração**: preço de ingresso, sócios, patrocínio, transmissão, produtos, estádio, manutenção, base, scouting e empréstimos
+- Uma carreira ativa fica vinculada ao clube escolhido; não existe troca de time durante o save
 - **Inbox** com notificações (lesão, suspensão, contrato, mercado)
 - **Artilharia**, classificação e narração com nomes dos jogadores
 - Save na nuvem (SQLite local no MVP)
@@ -50,13 +53,21 @@ apps/api        Fastify + Prisma (auth, saves, simulação)
 apps/e2e        Playwright
 packages/engine Motor puro (simulação, liga, copa, economia)
 packages/shared Tipos compartilhados
-data/world      Mundo fictício (clubes/jogadores/divisões)
+data/world      Mundo brasileiro (clubes reais, jogadores fictícios, divisões e estaduais)
 ```
+
+O usuário inicia uma carreira como técnico e administrador de um único clube. O clube não pode ser trocado durante a carreira; caixa, orçamento, estádio, contratos e receitas são responsabilidades do manager.
 
 ## Roadmap
 
-Em andamento — ver [Issues](https://github.com/TechFernandesLTDA/TechFoot/issues) (ébidos de Gameplay, Motor, Temporadas, Economia, Plataforma, Produto).
+Em andamento — ver [Issues](https://github.com/TechFernandesLTDA/TechFoot/issues) (épicos de Gameplay, Motor, Temporadas, Economia, Plataforma e Produto).
 
 ## Legal
 
-Não é clone. Não redistribui Elifoot/Brasfoot. Mundo 100% fictício.
+Não é clone. Não redistribui Elifoot/Brasfoot. O dataset público usa nomes de clubes apenas, sem escudos, uniformes, fotos, patrocinadores ou nomes de jogadores reais. Calendários e dados oficiais devem ser revisados antes de qualquer distribuição comercial.
+
+Para regenerar o dataset base:
+
+```bash
+node scripts/generate-brazil-world.mjs
+```

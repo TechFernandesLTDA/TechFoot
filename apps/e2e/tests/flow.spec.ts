@@ -13,7 +13,7 @@ test("fluxo completo: registrar, criar carreira, simular rodada, ver tabela", as
   await expect(page.getByRole("heading", { name: "Nova carreira" })).toBeVisible();
 
   // criar carreira (cai no Escritório)
-  await page.getByRole("button", { name: "Atlético Solaris" }).click();
+  await page.getByRole("button", { name: "Athletico Paranaense" }).click();
   await expect(page.getByText("Rodada 1", { exact: true })).toBeVisible();
 
   // simular
@@ -23,4 +23,11 @@ test("fluxo completo: registrar, criar carreira, simular rodada, ver tabela", as
   // ir pra tabela
   await page.getByRole("button", { name: "Tabela" }).click();
   await expect(page.getByText(/Série A ·/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Competições" }).click();
+  await expect(page.getByText("Mapa do futebol")).toBeVisible();
+
+  await page.getByRole("button", { name: "Administração" }).click();
+  await expect(page.getByText("Você decide o orçamento.")).toBeVisible();
+  await expect(page.getByText("10 CONTROLES")).toBeVisible();
 });

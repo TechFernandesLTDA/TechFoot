@@ -2,6 +2,19 @@ const json = (r: Response) => r.json();
 
 export type Tactic = "offensive" | "balanced" | "defensive";
 export type User = { id: string; email: string; name: string };
+export type AdminControls = {
+  ticketPrice: number;
+  membershipFee: number;
+  sponsorTier: number;
+  broadcastTier: number;
+  merchandisePrice: number;
+  stadiumLevel: number;
+  maintenanceBudget: number;
+  youthBudget: number;
+  scoutingBudget: number;
+  debt: number;
+  membershipCount: number;
+};
 
 async function req<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string> ?? {}) };
@@ -19,12 +32,14 @@ export const api = {
   register: (name: string, email: string, password: string) =>
     req<User>("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) }),
   logout: () => req("/auth/logout", { method: "POST" }),
-  world: () => req<{ name: string; clubs: { id: string; name: string; city: string; colors: string[]; division: number }[] }>("/world"),
+  world: () => req<{ name: string; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[]; clubs: { id: string; name: string; city: string; state: string; colors: string[]; division: number }[] }>("/world"),
   saves: () => req<{ id: string; name: string }[]>("/saves"),
   createSave: (clubId: string) => req<{ id: string; name: string; career: Career }>("/saves", { method: "POST", body: JSON.stringify({ clubId }) }),
   getSave: (id: string) => req<{ id: string; name: string; career: Career }>(`/saves/${id}`),
   lineup: (id: string, starterIds: string[]) => req<{ career: Career }>(`/saves/${id}/lineup`, { method: "PUT", body: JSON.stringify({ starterIds }) }),
   tactic: (id: string, tactic: Tactic) => req<{ career: Career }>(`/saves/${id}/tactic`, { method: "PUT", body: JSON.stringify({ tactic }) }),
+  admin: (id: string, patch: Partial<Omit<AdminControls, "membershipCount" | "debt">>) => req<{ career: Career }>(`/saves/${id}/admin`, { method: "PUT", body: JSON.stringify(patch) }),
+  loan: (id: string, amount: number) => req<{ career: Career }>(`/saves/${id}/admin/loan`, { method: "POST", body: JSON.stringify({ amount }) }),
   simulate: (id: string) => req<{ career: Career; userMatch: MatchResult | null }>(`/saves/${id}/simulate-round`, { method: "POST" }),
   buy: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/market/buy`, { method: "POST", body: JSON.stringify({ playerId }) }),
   sell: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/market/sell`, { method: "POST", body: JSON.stringify({ playerId }) }),
@@ -49,13 +64,14 @@ export type Player = {
   yellows: number; reds: number; goals: number; matches: number; suspendedGames: number;
 };
 export type Club = {
-  id: string; name: string; city: string; colors: string[]; stadiumName: string;
-  stadiumCapacity: number; cash: number; morale: number; division: 1 | 2; tactic: Tactic;
+  id: string; name: string; city: string; state: string; colors: string[]; stadiumName: string;
+  stadiumCapacity: number; cash: number; morale: number; division: 1 | 2 | 3; tactic: Tactic;
   rep: number; players: Player[];
 };
 export type InboxMessage = { id: string; kind: string; title: string; body: string; read: boolean };
 export type Career = {
-  clubId: string; division: 1 | 2; season: number; round: number; tactic: Tactic; starterIds: string[];
+  clubId: string; division: 1 | 2 | 3; season: number; round: number; tactic: Tactic; starterIds: string[];
+  admin: AdminControls;
   clubs: Club[]; table: { clubId: string; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number }[];
   fixtures: { round: number; homeId: string; awayId: string; played: boolean; result?: MatchResult }[];
   cup: { slot: string; homeId: string; awayId: string; played: boolean; winnerId?: string; homeGoals?: number; awayGoals?: number; penalties?: { home: number; away: number } }[][];
@@ -67,4 +83,5 @@ export type Career = {
   news: string[];
   lastRoundEvents: MatchResult | null;
   topScorers: { playerId: string; goals: number }[];
+  seed: number;
 };

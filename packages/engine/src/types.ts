@@ -25,16 +25,31 @@ export interface Club {
   id: string;
   name: string;
   city: string;
+  state: string;
   country: string;
   colors: [string, string];
   stadiumName: string;
   stadiumCapacity: number;
   cash: number;
   morale: number; // 0-100
-  division: 1 | 2;
+  division: 1 | 2 | 3;
   tactic: Tactic;
   rep: number; // reputação 0-100 (mercado)
   players: Player[];
+}
+
+export interface AdminControls {
+  ticketPrice: number;
+  membershipFee: number;
+  sponsorTier: number;
+  broadcastTier: number;
+  merchandisePrice: number;
+  stadiumLevel: number;
+  maintenanceBudget: number;
+  youthBudget: number;
+  scoutingBudget: number;
+  debt: number;
+  membershipCount: number;
 }
 
 export interface MatchEvent {

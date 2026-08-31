@@ -110,8 +110,13 @@ export function doubleRoundRobin(clubIds: string[]): Fixture[] {
   return fixtures.filter((f) => f.homeId !== "BYE" && f.awayId !== "BYE");
 }
 
-export function cupBracket(teamIds: string[]): CupFixture[][] {
+export function cupBracket(teamIds: string[], seed = 0): CupFixture[][] {
+  const rng = mulberry32(seed + 991);
   const ids = [...teamIds];
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
   const round: CupFixture[] = [];
   for (let i = 0; i + 1 < ids.length; i += 2) {
     round.push({ slot: "R16", homeId: ids[i], awayId: ids[i + 1], played: false });
@@ -135,8 +140,11 @@ export function resolveCup(
 }
 
 export function nextCupSlot(phaseGameCount: number): string {
-  if (phaseGameCount === 8) return "QF";
-  if (phaseGameCount === 4) return "SF";
+  if (phaseGameCount >= 30) return "2ª fase";
+  if (phaseGameCount >= 15) return "3ª fase";
+  if (phaseGameCount === 8) return "4ª fase";
+  if (phaseGameCount === 4) return "5ª fase";
+  if (phaseGameCount === 2) return "Final";
   return "F";
 }
 

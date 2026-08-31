@@ -1,8 +1,8 @@
 import { FormEvent, type ReactNode, useEffect, useState } from "react";
-import { api, type Career, type Club, type MatchResult, type Player, type Tactic, type User } from "./api";
+import { api, type AdminControls, type Career, type Club, type MatchResult, type Player, type Tactic, type User } from "./api";
 import { tr, type Lang, type TKey } from "./i18n";
 
-type Tab = "home" | "squad" | "fixtures" | "cup" | "market" | "finance" | "inbox" | "league" | "report";
+type Tab = "home" | "squad" | "fixtures" | "cup" | "market" | "finance" | "inbox" | "league" | "competitions" | "admin" | "report";
 type IconName = "home" | "users" | "calendar" | "trophy" | "market" | "wallet" | "mail" | "table" | "play" | "arrow";
 
 const POS_ORDER: Record<string, number> = { GK: 0, DF: 1, MF: 2, FW: 3 };
@@ -12,7 +12,8 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [error, setError] = useState("");
   const [saves, setSaves] = useState<{ id: string; name: string }[]>([]);
-  const [world, setWorld] = useState<{ id: string; name: string; city: string; division: number }[]>([]);
+  const [world, setWorld] = useState<{ id: string; name: string; city: string; state: string; division: number }[]>([]);
+  const [stateCompetitions, setStateCompetitions] = useState<{ id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[]>([]);
   const [save, setSave] = useState<{ id: string; name: string; career: Career } | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -29,6 +30,7 @@ export function App() {
       .then(([nextSaves, nextWorld]) => {
         setSaves(nextSaves);
         setWorld(nextWorld.clubs);
+        setStateCompetitions(nextWorld.stateCompetitions);
       })
       .catch((err: Error) => setError(err.message));
   }, [user]);
@@ -142,7 +144,7 @@ export function App() {
             <div className="club-grid">
               {world.map((club) => <button className="club-choice" key={club.id} onClick={() => createCareer(club.id)} disabled={busy}>
                 <span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span>
-                <span className="club-choice__copy"><strong>{club.name}</strong><small>{club.city} · {club.division === 1 ? "Série A" : "Série B"}</small></span>
+                <span className="club-choice__copy"><strong>{club.name}</strong><small>{club.city} · {divisionLabel(club.division)}</small></span>
                 <Icon name="arrow" />
               </button>)}
             </div>
@@ -179,6 +181,8 @@ export function App() {
           {tab === "finance" && <Finance save={save} />}
           {tab === "inbox" && <Inbox save={save} updateCareer={updateCareer} setError={setError} />}
           {tab === "league" && <League save={save} />}
+          {tab === "competitions" && <Competitions save={save} stateCompetitions={stateCompetitions} />}
+          {tab === "admin" && <Administration save={save} withSave={withSave} busy={busy} />}
           {tab === "report" && <Report save={save} />}
         </main>
       </div>
@@ -189,7 +193,7 @@ export function App() {
 const navItems: { tab: Tab; icon: IconName }[] = [
   { tab: "home", icon: "home" }, { tab: "squad", icon: "users" }, { tab: "fixtures", icon: "calendar" },
   { tab: "cup", icon: "trophy" }, { tab: "market", icon: "market" }, { tab: "finance", icon: "wallet" },
-  { tab: "inbox", icon: "mail" }, { tab: "league", icon: "table" },
+  { tab: "inbox", icon: "mail" }, { tab: "league", icon: "table" }, { tab: "competitions", icon: "calendar" }, { tab: "admin", icon: "wallet" },
 ];
 
 function AuthScreen({ lang, mode, busy, error, setLang, setMode, onSubmit }: { lang: Lang; mode: "login" | "register"; busy: boolean; error: string; setLang: (lang: Lang) => void; setMode: (mode: "login" | "register") => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -201,7 +205,7 @@ function Field({ name, label, type = "text", placeholder, minLength }: { name: s
 }
 
 function Header({ user, club, lang, setLang, onLogout }: { user: User; club?: Club; lang: Lang; setLang: (lang: Lang) => void; onLogout: () => void }) {
-  return <header className="topbar"><div className="brand-lockup"><span className="brand-mark">TF</span><strong>TECHFOOT</strong><small>MANAGER CONSOLE</small></div>{club ? <div className="topbar-club"><span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span><div><strong>{club.name}</strong><small>{club.city} · {club.division === 1 ? "Série A" : "Série B"}</small></div></div> : null}<div className="topbar-actions"><span className="online-dot">ONLINE</span><span className="user-name">{user.name}</span><button className="icon-button" title="Trocar idioma" aria-label="Trocar idioma" onClick={() => setLang(lang === "pt" ? "en" : "pt")}>{lang === "pt" ? "EN" : "PT"}</button><button className="logout-button" onClick={onLogout}>{tr(lang, "logout")}</button></div></header>;
+  return <header className="topbar"><div className="brand-lockup"><span className="brand-mark">TF</span><strong>TECHFOOT</strong><small>MANAGER CONSOLE</small></div>{club ? <div className="topbar-club"><span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span><div><strong>{club.name}</strong><small>{club.city} · {divisionLabel(club.division)}</small></div></div> : null}<div className="topbar-actions"><span className="online-dot">ONLINE</span><span className="user-name">{user.name}</span><button className="icon-button" title="Trocar idioma" aria-label="Trocar idioma" onClick={() => setLang(lang === "pt" ? "en" : "pt")}>{lang === "pt" ? "EN" : "PT"}</button><button className="logout-button" onClick={onLogout}>{tr(lang, "logout")}</button></div></header>;
 }
 
 function Home({ save, onSetTab, onSimulate, busy }: { save: { id: string; career: Career }; onSetTab: (tab: Tab) => void; onSimulate: () => void; busy: boolean }) {
@@ -239,7 +243,40 @@ function Finance({ save }: { save: { id: string; career: Career } }) { const inc
 
 function Inbox({ save, updateCareer, setError }: { save: { id: string; career: Career }; updateCareer: (career: Career) => void; setError: (message: string) => void }) { return <div className="page"><PageIntro eyebrow="CENTRO DE MENSAGENS" title="Tudo chega primeiro aqui." subtitle="Decisões, alertas e sinais do vestiário." /><section className="panel inbox-panel"><div className="inbox-toolbar"><div><span className="eyebrow">CAIXA DE ENTRADA</span><strong>{save.career.inbox.filter((message) => !message.read).length} não lidas</strong></div><span className="inbox-filter">TODAS <Icon name="arrow" /></span></div>{save.career.inbox.length === 0 ? <EmptyState icon="mail" title="Nenhuma mensagem" text="As notícias do clube aparecerão aqui." /> : save.career.inbox.map((message) => <article className={`message-row ${message.read ? "is-read" : "is-unread"}`} key={message.id}><span className={`message-icon message-icon--${message.kind}`}><Icon name={message.kind === "market" ? "market" : message.kind === "season" || message.kind === "cup" ? "trophy" : "mail"} /></span><div><div className="message-title"><strong>{message.title}</strong>{!message.read ? <span className="unread-label">NOVA</span> : null}</div><p>{message.body}</p></div>{!message.read ? <button className="mini-button" onClick={async () => { try { const result = await api.markRead(save.id, message.id); updateCareer({ ...save.career, inbox: result.inbox }); } catch (err) { setError((err as Error).message); } }}>Marcar lida</button> : null}</article>)}</section></div>; }
 
-function League({ save }: { save: { id: string; career: Career } }) { const c = myClub(save.career); return <div className="page"><PageIntro eyebrow={c.division === 1 ? "SÉRIE A" : "SÉRIE B"} title="A tabela conta a história." subtitle="Pontos, saldo e consistência ao longo da temporada." /><div className="league-layout"><section className="panel table-panel"><SectionHeading eyebrow="CLASSIFICAÇÃO" title={`${c.division === 1 ? "Série A" : "Série B"} · ${save.career.season}`} /><MiniTable save={save} expanded /></section><section className="panel scorers-panel"><SectionHeading eyebrow="ARTILHARIA" title="Quem decide" />{save.career.topScorers.length === 0 ? <EmptyState icon="trophy" title="Sem gols registrados" text="A artilharia ganha forma após a primeira rodada." /> : save.career.topScorers.slice(0, 8).map((scorer, index) => { const club = save.career.clubs.find((item) => item.players.some((player) => player.id === scorer.playerId)); const player = club?.players.find((item) => item.id === scorer.playerId); return <div className="scorer-row" key={scorer.playerId}><span>{String(index + 1).padStart(2, "0")}</span><span className="player-avatar">{initials(player?.name ?? "?")}</span><div><strong>{player?.name ?? scorer.playerId}</strong><small>{club?.name}</small></div><b>{scorer.goals}<small>GOLS</small></b></div>; })}</section></div></div>; }
+function League({ save }: { save: { id: string; career: Career } }) { const c = myClub(save.career); return <div className="page"><PageIntro eyebrow={divisionLabel(c.division).toUpperCase()} title="A tabela conta a história." subtitle="Pontos, saldo e consistência ao longo da temporada." /><div className="league-layout"><section className="panel table-panel"><SectionHeading eyebrow="CLASSIFICAÇÃO" title={`${divisionLabel(c.division)} · ${save.career.season}`} /><MiniTable save={save} expanded /></section><section className="panel scorers-panel"><SectionHeading eyebrow="ARTILHARIA" title="Quem decide" />{save.career.topScorers.length === 0 ? <EmptyState icon="trophy" title="Sem gols registrados" text="A artilharia ganha forma após a primeira rodada." /> : save.career.topScorers.slice(0, 8).map((scorer, index) => { const club = save.career.clubs.find((item) => item.players.some((player) => player.id === scorer.playerId)); const player = club?.players.find((item) => item.id === scorer.playerId); return <div className="scorer-row" key={scorer.playerId}><span>{String(index + 1).padStart(2, "0")}</span><span className="player-avatar">{initials(player?.name ?? "?")}</span><div><strong>{player?.name ?? scorer.playerId}</strong><small>{club?.name}</small></div><b>{scorer.goals}<small>GOLS</small></b></div>; })}</section></div></div>; }
+
+function Competitions({ save, stateCompetitions }: { save: { id: string; career: Career }; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[] }) {
+  const position = positionOf(save.career);
+  const scenarios = [
+    { label: "Vitória", text: position <= 4 ? "Mantém o clube na zona de classificação." : "Pode subir até duas posições." },
+    { label: "Empate", text: position <= 8 ? "Pontua, mas depende dos concorrentes diretos." : "Precisa melhorar o saldo na próxima rodada." },
+    { label: "Derrota", text: position >= save.career.table.length - 2 ? "Risco imediato de zona de queda." : "A pressão aumenta no próximo jogo." },
+  ];
+  return <div className="page"><PageIntro eyebrow="CALENDÁRIO BRASILEIRO" title="Uma temporada, vários caminhos." subtitle="Brasileirão, Copa do Brasil e estaduais convivem no mesmo calendário." /><section className="competition-grid"><article className="panel competition-hero"><div className="eyebrow">SORTEIO DA TEMPORADA</div><h3>Próximo sorteio auditável</h3><p>Seed <strong>{save.career.seed}</strong> · combinação gerada para a temporada {save.career.season}.</p><div className="draw-chip"><Icon name="calendar" /><span>Rodada {save.career.round}</span><b>{save.career.division === 1 ? "BRASILEIRÃO A" : save.career.division === 2 ? "BRASILEIRÃO B" : "BRASILEIRÃO C"}</b></div></article><article className="panel scenario-panel"><SectionHeading eyebrow="COMBINAÇÕES" title="O que está em jogo" />{scenarios.map((scenario) => <div className="scenario-row" key={scenario.label}><span className={`scenario-mark scenario-mark--${scenario.label.toLowerCase() === "vitória" ? "win" : scenario.label.toLowerCase() === "empate" ? "draw" : "loss"}`}>{scenario.label.slice(0, 1)}</span><div><strong>Se houver {scenario.label.toLowerCase()}</strong><small>{scenario.text}</small></div></div>)}</article></section><section className="panel competition-catalog"><SectionHeading eyebrow="COMPETIÇÕES ATIVAS" title="Mapa do futebol" /><div className="catalog-grid"><CompetitionCard title="Campeonato Brasileiro Série A" format="20 clubes · 38 rodadas" detail="4 rebaixados" tone="gold" /><CompetitionCard title="Campeonato Brasileiro Série B" format="20 clubes · acesso + playoff" detail="4 rebaixados" tone="blue" /><CompetitionCard title="Campeonato Brasileiro Série C" format="20 clubes · fase + grupos" detail="4 acessos" tone="green" /><CompetitionCard title="Copa do Brasil" format="126 clubes · sorteio por fases" detail="final única" tone="red" /></div></section><section className="panel state-panel"><SectionHeading eyebrow="27 FEDERAÇÕES" title="Campeonatos estaduais" /><div className="state-grid">{stateCompetitions.map((competition) => <div className="state-card" key={competition.id}><span>{competition.state}</span><strong>{competition.name.replace("Campeonato ", "")}</strong><small>{competition.qualification === "copa-do-brasil" ? "classifica para Copa do Brasil" : "formato configurável"}</small></div>)}</div></section></div>;
+}
+
+function CompetitionCard({ title, format, detail, tone }: { title: string; format: string; detail: string; tone: string }) { return <article className={`catalog-card catalog-card--${tone}`}><span className="catalog-card__line" /><Icon name="calendar" /><h3>{title}</h3><p>{format}</p><small>{detail}</small></article>; }
+
+function Administration({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) {
+  const [draft, setDraft] = useState<AdminControls>(save.career.admin);
+  const [loanAmount, setLoanAmount] = useState(500000);
+  useEffect(() => setDraft(save.career.admin), [save.career.admin]);
+  const update = (key: keyof AdminControls, value: number) => setDraft((current) => ({ ...current, [key]: value }));
+  const controls: { key: keyof AdminControls; label: string; min: number; max: number; step: number; suffix: string }[] = [
+    { key: "ticketPrice", label: "Preço do ingresso", min: 10, max: 300, step: 5, suffix: "R$" },
+    { key: "membershipFee", label: "Mensalidade do sócio", min: 10, max: 1000, step: 10, suffix: "R$" },
+    { key: "sponsorTier", label: "Nível de patrocínio", min: 1, max: 5, step: 1, suffix: "/5" },
+    { key: "broadcastTier", label: "Pacote de transmissão", min: 1, max: 3, step: 1, suffix: "/3" },
+    { key: "merchandisePrice", label: "Preço de produtos", min: 30, max: 500, step: 10, suffix: "R$" },
+    { key: "stadiumLevel", label: "Nível do estádio", min: 1, max: 5, step: 1, suffix: "/5" },
+    { key: "maintenanceBudget", label: "Manutenção", min: 0, max: 1000000, step: 25000, suffix: "R$" },
+    { key: "youthBudget", label: "Categorias de base", min: 0, max: 2000000, step: 50000, suffix: "R$" },
+    { key: "scoutingBudget", label: "Scouting", min: 0, max: 2000000, step: 50000, suffix: "R$" },
+  ];
+  return <div className="page"><PageIntro eyebrow="ADMINISTRAÇÃO DO CLUBE" title="Você decide o orçamento." subtitle="Cada controle altera a renda, o risco e a capacidade de competir." action={<button className="primary-cta primary-cta--compact" disabled={busy} onClick={() => withSave(() => api.admin(save.id, draft))}>Aplicar plano <Icon name="arrow" /></button>} /><div className="admin-overview"><Metric icon="wallet" label="Caixa" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="disponível" tone="gold" /><Metric icon="users" label="Sócios" value={String(save.career.admin.membershipCount)} detail={`R$ ${save.career.admin.membershipFee}/mês`} tone="green" /><Metric icon="market" label="Dívida" value={`R$ ${(save.career.admin.debt / 1e6).toFixed(1)}M`} detail="juros de 1% / rodada" tone="red" /></div><div className="admin-layout"><section className="panel controls-panel"><SectionHeading eyebrow="10 CONTROLES" title="Alavancas do clube" /><div className="control-grid">{controls.map((control) => <label className="range-control" key={control.key}><span><strong>{control.label}</strong><output>{formatControlValue(control.key, draft[control.key])} {control.suffix}</output></span><input type="range" min={control.min} max={control.max} step={control.step} value={draft[control.key] as number} onChange={(event) => update(control.key, Number(event.target.value))} /></label>)}</div></section><section className="panel loan-panel"><SectionHeading eyebrow="CRÉDITO" title="Fôlego de caixa" /><p>Empréstimos ajudam numa crise, mas comprometem as próximas rodadas.</p><label className="field field--dark"><span>Valor</span><input type="number" min={100000} max={10000000} step={100000} value={loanAmount} onChange={(event) => setLoanAmount(Number(event.target.value))} /></label><button className="ghost-button ghost-button--full" disabled={busy} onClick={() => withSave(() => api.loan(save.id, loanAmount))}>Solicitar empréstimo <Icon name="arrow" /></button><div className="loan-warning"><span>ATENÇÃO</span><small>O juros de 1% é debitado por rodada.</small></div></section></div></div>;
+}
+
+function formatControlValue(key: keyof AdminControls, value: number): string { if (key === "sponsorTier" || key === "broadcastTier" || key === "stadiumLevel") return String(value); return value >= 1000000 ? `${(value / 1000000).toFixed(1)}M` : value >= 1000 ? `${(value / 1000).toFixed(0)}k` : String(value); }
 
 function Report({ save }: { save: { id: string; career: Career } }) { const match = save.career.lastRoundEvents; if (!match) return <div className="page"><EmptyState icon="play" title="Nenhum jogo simulado" text="Simule uma rodada no escritório para ver o relatório." /></div>; return <div className="page"><PageIntro eyebrow="RELATÓRIO DE PARTIDA" title="O jogo terminou. A análise começa." subtitle="Cada lance fica registrado para sua próxima decisão." /><section className="panel report-score"><div className="report-side"><span className="club-crest club-crest--large crest--1"><span>{abbr(clubName(save.career, match.homeId))}</span></span><strong>{clubName(save.career, match.homeId)}</strong></div><div className="report-result"><span>{match.homeGoals}</span><b>—</b><span>{match.awayGoals}</span><small>FINAL</small></div><div className="report-side"><span className="club-crest club-crest--large crest--2"><span>{abbr(clubName(save.career, match.awayId))}</span></span><strong>{clubName(save.career, match.awayId)}</strong></div><div className="report-meta"><span>CHUTES <b>{match.shots.home} × {match.shots.away}</b></span><span>CARTÕES <b>{match.cards.home.yellow + match.cards.home.red} × {match.cards.away.yellow + match.cards.away.red}</b></span><span>LESÕES <b>{match.injuries.length}</b></span></div></section><section className="panel timeline-panel"><SectionHeading eyebrow="NARRAÇÃO AO VIVO" title="Linha do tempo" /><div className="timeline">{match.events.map((event, index) => <div className={`timeline-event timeline-event--${event.kind}`} key={`${event.minute}-${index}`}><span className="timeline-minute">{event.minute}'</span><span className="timeline-marker"><Icon name={event.kind === "goal" ? "trophy" : event.kind === "whistle" ? "play" : "arrow"} /></span><div><strong>{event.text}</strong><small>{clubName(save.career, event.teamId)}{event.playerId ? ` · ${playerShort(save.career, event.playerId)}` : ""}</small></div></div>)}</div></section></div>; }
 
@@ -253,9 +290,10 @@ function EmptyState({ icon, title, text }: { icon: IconName; title: string; text
 function Alert({ message }: { message: string }) { return <div className="alert" role="alert"><Icon name="arrow" />{message}</div>; }
 function Icon({ name }: { name: IconName }) { const paths: Record<IconName, ReactNode> = { home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" /></>, users: <><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3 2-5 6-5s6 2 6 5" /><path d="M16 5.5a3 3 0 0 1 0 5.8M17 15c2.5.3 4 2 4 5" /></>, calendar: <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 9h18" /></>, trophy: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0Z" /><path d="M7 6H3v2a4 4 0 0 0 4 4M17 6h4v2a4 4 0 0 1-4 4" /></>, market: <><path d="M4 7h16l-1 13H5L4 7Z" /><path d="M8 10V5a4 4 0 0 1 8 0v5" /></>, wallet: <><path d="M3 6a2 2 0 0 1 2-2h14v16H5a2 2 0 0 1-2-2V6Z" /><path d="M3 7h16M15 13h2" /></>, mail: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="m4 7 8 6 8-6" /></>, table: <><path d="M4 5h16v15H4zM4 10h16M10 5v15" /></>, play: <><path d="m8 5 11 7-11 7V5Z" /></>, arrow: <><path d="M5 12h13M13 6l6 6-6 6" /></> }; return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>; }
 
-function label(t: Tab, lang: Lang): string { const labels: Record<Tab, TKey> = { home: "office", squad: "squad", fixtures: "fixtures", cup: "cup", market: "market", finance: "finance", inbox: "inbox", league: "table", report: "match" }; return tr(lang, labels[t]); }
+function label(t: Tab, lang: Lang): string { if (t === "competitions") return "Competições"; if (t === "admin") return "Administração"; const labels: Record<Exclude<Tab, "competitions" | "admin">, TKey> = { home: "office", squad: "squad", fixtures: "fixtures", cup: "cup", market: "market", finance: "finance", inbox: "inbox", league: "table", report: "match" }; return tr(lang, labels[t as Exclude<Tab, "competitions" | "admin">]); }
 function myClub(career: Career): Club { return career.clubs.find((club) => club.id === career.clubId)!; }
 function clubName(career: Career, id?: string | null): string { return career.clubs.find((club) => club.id === id)?.name ?? id ?? "?"; }
+function divisionLabel(division: number): string { return division === 1 ? "Série A" : division === 2 ? "Série B" : "Série C"; }
 function playerShort(career: Career, id: string): string { for (const club of career.clubs) { const player = club.players.find((item) => item.id === id); if (player) return player.name; } return id; }
 function abbr(value: string): string { return value.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase().slice(0, 3); }
 function abbreviated(value: string): string { return value.length > 19 ? `${value.slice(0, 17)}…` : value; }

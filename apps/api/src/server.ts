@@ -6,7 +6,8 @@ import { z } from "zod";
 import { prisma } from "./db.ts";
 import { hashPassword, readToken, signToken, verifyPassword } from "./auth.ts";
 import {
-  buyPlayer, createCareer, httpError, loadWorld, renewContract, sellPlayer, simulateRound, setTactic,
+  buyPlayer, createCareer, httpError, loadWorld, renewContract, sellPlayer, simulateRound, setTactic, takeLoan,
+  updateAdmin, normalizeCareer,
   type Career,
 } from "./career.ts";
 
@@ -24,6 +25,18 @@ const loginSchema = z.object({ email: z.string().email(), password: z.string().m
 const tacticSchema = z.object({ tactic: z.enum(["offensive", "balanced", "defensive"]) });
 const playerIdSchema = z.object({ playerId: z.string().min(1) });
 const lineupSchema = z.object({ starterIds: z.array(z.string()).length(11) });
+const adminSchema = z.object({
+  ticketPrice: z.number().optional(),
+  membershipFee: z.number().optional(),
+  sponsorTier: z.number().optional(),
+  broadcastTier: z.number().optional(),
+  merchandisePrice: z.number().optional(),
+  stadiumLevel: z.number().optional(),
+  maintenanceBudget: z.number().optional(),
+  youthBudget: z.number().optional(),
+  scoutingBudget: z.number().optional(),
+});
+const loanSchema = z.object({ amount: z.number().int().positive() });
 
 type AuthedReq = { cookies: Record<string, string | undefined> };
 
@@ -84,9 +97,24 @@ app.get("/world", async () => {
   return {
     name: world.name,
     seasons: [{ id: "2026", name: "2026" }],
+    stateCompetitions: world.stateCompetitions,
     clubs: world.clubs.map((c) => ({
-      id: c.id, name: c.name, city: c.city, colors: c.colors, stadiumName: c.stadiumName, division: c.division,
+      id: c.id, name: c.name, city: c.city, state: c.state, colors: c.colors, stadiumName: c.stadiumName, division: c.division,
     })),
+  };
+});
+
+app.get("/competitions", async () => {
+  const world = loadWorld();
+  return {
+    season: 2026,
+    competitions: [
+      { id: "brasileirao-a", name: "Campeonato Brasileiro Série A", format: "38 rodadas · ida e volta", clubs: 20 },
+      { id: "brasileirao-b", name: "Campeonato Brasileiro Série B", format: "38 rodadas · playoff de acesso", clubs: 20 },
+      { id: "brasileirao-c", name: "Campeonato Brasileiro Série C", format: "fase única + quadrangular", clubs: 20 },
+      { id: "copa-do-brasil", name: "Copa do Brasil", format: "126 clubes · sorteio por fases", clubs: 126 },
+      ...world.stateCompetitions.map((competition) => ({ id: competition.id, name: competition.name, format: "formato estadual configurável", clubs: world.clubs.filter((club) => club.state === competition.state).length })),
+    ],
   };
 });
 
@@ -99,6 +127,8 @@ app.post("/saves", async (req, reply) => {
   const userId = userIdFrom(req);
   const body = req.body as { clubId?: string; name?: string };
   if (!body.clubId) return reply.code(400).send({ error: "clubId obrigatório" });
+  const activeSave = await prisma.save.findFirst({ where: { userId, active: true }, select: { id: true } });
+  if (activeSave) return reply.code(409).send({ error: "Sua carreira já está vinculada a um clube" });
   const career = createCareer(body.clubId);
   const save = await prisma.save.create({
     data: { userId, name: body.name ?? career.clubs.find((c) => c.id === body.clubId)?.name ?? "Carreira", payload: JSON.stringify(career) },
@@ -110,7 +140,7 @@ async function loadSave(req: AuthedReq & { params: { id: string } }) {
   const { id } = req.params;
   const save = await prisma.save.findFirst({ where: { id, userId: userIdFrom(req) } });
   if (!save) throw httpError("Save não encontrado", 404);
-  return { save, career: JSON.parse(save.payload) as Career };
+  return { save, career: normalizeCareer(JSON.parse(save.payload) as Career) };
 }
 
 app.get("/saves/:id", async (req) => {
@@ -130,6 +160,22 @@ app.put("/saves/:id/tactic", async (req) => {
   const { save, career } = await loadSave(req as never);
   const { tactic } = validate(tacticSchema, req.body);
   const updated = setTactic(career, tactic);
+  await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(updated) } });
+  return { career: updated };
+});
+
+app.put("/saves/:id/admin", async (req) => {
+  const { save, career } = await loadSave(req as never);
+  const patch = validate(adminSchema, req.body);
+  const updated = updateAdmin(career, patch);
+  await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(updated) } });
+  return { career: updated };
+});
+
+app.post("/saves/:id/admin/loan", async (req) => {
+  const { save, career } = await loadSave(req as never);
+  const { amount } = validate(loanSchema, req.body);
+  const updated = takeLoan(career, amount);
   await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(updated) } });
   return { career: updated };
 });

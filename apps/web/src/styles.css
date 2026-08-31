@@ -29,6 +29,8 @@ body { min-width: 320px; min-height: 100vh; margin: 0; background: radial-gradie
 button, input, select { font: inherit; }
 button { border: 0; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.48; }
+button:not(:disabled) { transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease; }
+button:not(:disabled):active { transform: translateY(1px); }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
 h1, h2, h3, h4, p { margin-top: 0; }
 h1, h2, h3, h4 { font-family: "Barlow Condensed", sans-serif; letter-spacing: -0.02em; }
@@ -64,6 +66,7 @@ svg { width: 18px; height: 18px; flex: 0 0 auto; }
 .nav-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 45px; padding: 0 12px; border-left: 2px solid transparent; background: transparent; color: var(--paper-dim); text-align: left; font-size: 0.72rem; font-weight: 600; transition: 180ms ease; }
 .nav-item:hover { background: rgba(241, 234, 215, 0.06); color: var(--paper); }
 .nav-item.is-active { border-left-color: var(--gold); background: rgba(240, 189, 98, 0.11); color: var(--gold-soft); }
+.nav-item.is-active svg { animation: nav-pop 220ms ease both; }
 .nav-item b { min-width: 20px; margin-left: auto; padding: 3px 5px; border-radius: 9px; background: var(--red); color: var(--ink); font-size: 0.6rem; text-align: center; }
 .sidebar__season { margin-top: 58px; padding: 14px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .sidebar__season span, .sidebar__season small { color: var(--paper-dim); font-size: 0.58rem; letter-spacing: 0.11em; }
@@ -95,6 +98,7 @@ svg { width: 18px; height: 18px; flex: 0 0 auto; }
 .metric-grid, .finance-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
 .finance-cards { grid-template-columns: repeat(3, 1fr); }
 .metric-card { position: relative; min-height: 142px; padding: 16px; border: 1px solid var(--line); background: rgba(13, 49, 38, 0.78); }
+.metric-card:hover { border-color: rgba(240, 189, 98, 0.45); transform: translateY(-2px); }
 .metric-card--gold { border-top: 2px solid var(--gold); }
 .metric-card--green { border-top: 2px solid var(--green); }
 .metric-card--red { border-top: 2px solid var(--red); }
@@ -168,6 +172,7 @@ select { min-height: 38px; padding: 0 10px; border: 1px solid var(--line-strong)
 .pitch-players--keeper { bottom: 6%; }
 .pitch-token { display: grid; justify-items: center; gap: 3px; color: var(--paper); text-align: center; text-shadow: 0 1px 2px #071d17; }
 .pitch-token b { display: grid; width: 27px; height: 27px; place-items: center; border: 1px solid var(--gold-soft); border-radius: 50%; background: var(--forest-800); color: var(--gold-soft); font-size: 0.51rem; }
+.pitch-token b { animation: token-breathe 2.8s ease-in-out infinite; }
 .pitch-token small { max-width: 54px; overflow: hidden; font-size: 0.51rem; text-overflow: ellipsis; white-space: nowrap; }
 .pitch-legend { display: flex; gap: 14px; margin-top: 12px; color: var(--paper-dim); font-size: 0.58rem; }
 .pitch-legend span { display: inline-flex; align-items: center; gap: 5px; }
@@ -216,6 +221,7 @@ tr.is-highlighted td { background: rgba(240, 189, 98, 0.1); color: var(--gold-so
 .bracket-match b { color: var(--gold); text-align: right; }
 .bracket-match small { grid-column: 1 / -1; color: var(--paper-dim); font-size: 0.48rem; }
 .bracket-match.is-played { border-color: rgba(240, 189, 98, 0.32); }
+.bracket-match.is-played { animation: reveal-up 260ms ease both; }
 
 .market-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 12px; }
 .market-summary > div { display: grid; gap: 5px; padding-right: 18px; border-right: 1px solid var(--line); }
@@ -345,9 +351,68 @@ tr.is-highlighted td { background: rgba(240, 189, 98, 0.1); color: var(--gold-so
 .club-choice .club-crest span { width: 23px; height: 23px; font-size: 0.42rem; }
 .club-choice__copy { min-width: 0; }
 .club-choice__copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
+.competition-grid, .admin-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.competition-hero { min-height: 250px; display: flex; flex-direction: column; justify-content: space-between; background: linear-gradient(135deg, #194f3b, #0b241c); }
+.competition-hero h3 { margin: 18px 0 8px; font-size: 2rem; }
+.competition-hero p, .loan-panel p { max-width: 430px; color: var(--paper-dim); font-size: 0.68rem; line-height: 1.6; }
+.competition-hero p strong { color: var(--gold); }
+.draw-chip { display: flex; align-items: center; gap: 10px; margin-top: 20px; padding: 12px; border: 1px solid rgba(240, 189, 98, 0.32); background: rgba(240, 189, 98, 0.08); color: var(--paper-dim); font-size: 0.61rem; }
+.draw-chip svg { color: var(--gold); }
+.draw-chip b { margin-left: auto; color: var(--gold); font-size: 0.54rem; }
+.scenario-panel { min-height: 250px; }
+.scenario-row { display: flex; align-items: center; gap: 11px; min-height: 58px; border-top: 1px solid var(--line); }
+.scenario-mark { display: grid; width: 29px; height: 29px; place-items: center; border: 1px solid var(--line-strong); font-weight: 700; }
+.scenario-mark--win { border-color: var(--green); color: var(--green); }
+.scenario-mark--draw { border-color: var(--gold); color: var(--gold); }
+.scenario-mark--loss { border-color: var(--red); color: var(--red); }
+.scenario-row strong, .scenario-row small { display: block; }
+.scenario-row strong { font-size: 0.67rem; }
+.scenario-row small { margin-top: 3px; color: var(--paper-dim); font-size: 0.57rem; }
+.competition-catalog, .state-panel { margin-bottom: 12px; }
+.catalog-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.catalog-card { position: relative; min-height: 150px; padding: 15px; border: 1px solid var(--line); overflow: hidden; }
+.catalog-card > svg { color: var(--paper-dim); }
+.catalog-card h3 { margin: 14px 0 7px; font-size: 1.2rem; }
+.catalog-card p, .catalog-card small { margin: 0; color: var(--paper-dim); font-size: 0.56rem; line-height: 1.5; }
+.catalog-card small { display: block; margin-top: 8px; color: var(--gold); }
+.catalog-card__line { position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: var(--gold); }
+.catalog-card--blue .catalog-card__line { background: var(--blue); }
+.catalog-card--green .catalog-card__line { background: var(--green); }
+.catalog-card--red .catalog-card__line { background: var(--red); }
+.state-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.state-card { min-height: 68px; padding: 10px; border: 1px solid var(--line); }
+.state-card span, .state-card strong, .state-card small { display: block; }
+.state-card span { color: var(--gold); font-size: 0.53rem; font-weight: 700; }
+.state-card strong { margin: 5px 0; font: 700 1rem "Barlow Condensed", sans-serif; }
+.state-card small { color: var(--paper-dim); font-size: 0.51rem; }
+.state-card:hover, .catalog-card:hover { border-color: rgba(240, 189, 98, 0.5); background: rgba(240, 189, 98, 0.05); transform: translateY(-2px); }
+.admin-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.admin-layout { grid-template-columns: minmax(0, 1.35fr) minmax(250px, 0.65fr); }
+.controls-panel { min-width: 0; }
+.control-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 22px; }
+.range-control { display: grid; gap: 8px; }
+.range-control > span { display: flex; justify-content: space-between; gap: 10px; color: var(--paper-dim); font-size: 0.6rem; }
+.range-control strong { color: var(--paper); font-size: 0.62rem; font-weight: 600; }
+.range-control output { color: var(--gold); font-size: 0.57rem; font-weight: 700; white-space: nowrap; }
+input[type="range"] { width: 100%; height: 5px; accent-color: var(--gold); cursor: pointer; }
+.loan-panel { align-self: start; }
+.field--dark input { border-color: var(--line-strong); background: var(--forest-950); color: var(--paper); }
+.loan-warning { display: flex; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.loan-warning span { color: var(--red); font-size: 0.52rem; font-weight: 700; }
+.loan-warning small { color: var(--paper-dim); font-size: 0.55rem; }
+.main-content[aria-busy="true"] { cursor: progress; }
+.main-content[aria-busy="true"] .page { opacity: 0.75; }
+.draw-chip { animation: draw-shimmer 3.2s linear infinite; background-size: 200% 100%; }
+.message-row.is-unread { animation: message-in 240ms ease both; }
+.range-control input { transition: filter 180ms ease; }
+.range-control:hover input { filter: brightness(1.15); }
 @keyframes page-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes goal-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240, 189, 98, 0); } 50% { box-shadow: 0 0 0 6px rgba(240, 189, 98, 0.12); } }
+@keyframes nav-pop { from { opacity: 0.4; transform: scale(0.82); } to { opacity: 1; transform: scale(1); } }
+@keyframes token-breathe { 0%, 100% { box-shadow: 0 0 0 rgba(240, 189, 98, 0); } 50% { box-shadow: 0 0 12px rgba(240, 189, 98, 0.16); } }
+@keyframes reveal-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes message-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes draw-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 
 @media (max-width: 1100px) {
   .app { padding-right: 22px; padding-left: 22px; }
@@ -372,9 +437,13 @@ tr.is-highlighted td { background: rgba(240, 189, 98, 0.1); color: var(--gold-so
   .mobile-tabs svg { width: 17px; height: 17px; }
   .page-intro { align-items: start; flex-direction: column; gap: 14px; }
   .home-grid, .squad-layout, .league-layout { grid-template-columns: 1fr; }
+  .competition-grid, .admin-layout { grid-template-columns: 1fr; }
   .next-match { grid-row: auto; }
   .metric-grid, .finance-cards { grid-template-columns: repeat(2, 1fr); }
   .market-grid { grid-template-columns: repeat(2, 1fr); }
+  .state-grid { grid-template-columns: repeat(2, 1fr); }
+  .catalog-grid { grid-template-columns: repeat(2, 1fr); }
+  .state-grid { grid-template-columns: repeat(2, 1fr); }
   .auth-screen { display: block; margin: 0; }
   .auth-art { display: none; }
   .auth-card { min-height: 100vh; padding: 28px 24px; }
@@ -398,6 +467,9 @@ tr.is-highlighted td { background: rgba(240, 189, 98, 0.1); color: var(--gold-so
   .match-vs { font-size: 1.5rem; }
   .match-actions { display: grid; }
   .club-grid, .market-grid { grid-template-columns: 1fr; }
+  .catalog-grid, .state-grid { grid-template-columns: 1fr; }
+  .admin-overview, .control-grid { grid-template-columns: 1fr; }
+  .catalog-grid, .state-grid { grid-template-columns: 1fr; }
   .bracket { gap: 12px; }
   .bracket-match::after { right: -13px; width: 12px; }
   .report-score { grid-template-columns: 1fr 1fr; gap: 12px; }

@@ -3,14 +3,14 @@ import { fileURLToPath } from "node:url";
 import {
   aiTransferPrice, applyResult, cupBracket, defaultStarters, doubleRoundRobin, emptyStandings,
   evolvePlayer, leagueAverageStrength, MATCH_PRIZE, mulberry32, nextCupSlot, playerValue, prizeFor,
-  resolvePenalties, ticketRevenue, weeklyWages, simulateMatch,
-  type Club, type CupFixture, type Fixture, type InboxMessage,
+  resolvePenalties, weeklyWages, simulateMatch,
+  type AdminControls, type Club, type CupFixture, type Fixture, type InboxMessage,
   type LedgerEntry, type MatchResult, type Standing, type Tactic,
 } from "@techfoot/engine";
 
 export type Career = {
   clubId: string;
-  division: 1 | 2;
+  division: 1 | 2 | 3;
   season: number;
   round: number;
   tactic: Tactic;
@@ -23,6 +23,7 @@ export type Career = {
   cupChampion?: string;
   cupFinalPlayed: boolean;
   finances: number;
+  admin: AdminControls;
   ledger: LedgerEntry[];
   market: { playerId: string; clubId: string | null; price: number }[];
   inbox: InboxMessage[];
@@ -32,14 +33,16 @@ export type Career = {
   seed: number;
 };
 
+export type AdminPatch = Partial<Omit<AdminControls, "membershipCount" | "debt">>;
+
 const worldPath = fileURLToPath(new URL("../../../data/world/liga-br.json", import.meta.url));
 
 export function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
 
-export function loadWorld(): { name: string; clubs: Club[] } {
-  return JSON.parse(readFileSync(worldPath, "utf8")) as { name: string; clubs: Club[] };
+export function loadWorld(): { name: string; clubs: Club[]; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[] } {
+  return JSON.parse(readFileSync(worldPath, "utf8")) as { name: string; clubs: Club[]; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[] };
 }
 
 function newMessage(career: Career, id: string, kind: string, title: string, body: string): void {
@@ -51,6 +54,38 @@ function clubMap(clubs: Club[]): Map<string, Club> {
   return new Map(clubs.map((c) => [c.id, c]));
 }
 
+function divisionLabel(division: 1 | 2 | 3): string {
+  return division === 1 ? "Série A" : division === 2 ? "Série B" : "Série C";
+}
+
+function fixturesForDivision(clubIds: string[], division: 1 | 2 | 3): Fixture[] {
+  const fixtures = doubleRoundRobin(clubIds);
+  return division === 3 ? fixtures.filter((fixture) => fixture.round <= 19) : fixtures;
+}
+
+function defaultAdmin(club: Club): AdminControls {
+  return {
+    ticketPrice: 40,
+    membershipFee: 60,
+    sponsorTier: 1,
+    broadcastTier: 1,
+    merchandisePrice: 120,
+    stadiumLevel: 1,
+    maintenanceBudget: 50_000,
+    youthBudget: 150_000,
+    scoutingBudget: 100_000,
+    debt: 0,
+    membershipCount: Math.round(club.morale * 100),
+  };
+}
+
+export function normalizeCareer(career: Career): Career {
+  const club = career.clubs.find((item) => item.id === career.clubId);
+  if (club && !career.admin) career.admin = defaultAdmin(club);
+  if (!career.admin && club) career.admin = defaultAdmin(club);
+  return career;
+}
+
 export function createCareer(clubId: string, season = 2026): Career {
   const world = loadWorld();
   const club = world.clubs.find((c) => c.id === clubId);
@@ -58,32 +93,34 @@ export function createCareer(clubId: string, season = 2026): Career {
   const clubs = structuredClone(world.clubs);
   const myClub = clubs.find((c) => c.id === clubId)!;
   const divisionClubIds = clubs.filter((c) => c.division === myClub.division).map((c) => c.id);
-  const cupTeams = cupBracket(clubs.map((c) => c.id));
+  const seed = Date.now() % 1_000_000_000;
+  const cupTeams = cupBracket(clubs.map((c) => c.id), seed);
 
   const career: Career = {
     clubId,
-    division: myClub.division as 1 | 2,
+    division: myClub.division,
     season,
     round: 1,
     tactic: "balanced",
     starterIds: defaultStarters(myClub.players),
     clubs,
     table: emptyStandings(divisionClubIds),
-    fixtures: doubleRoundRobin(divisionClubIds),
+    fixtures: fixturesForDivision(divisionClubIds, myClub.division),
     cup: cupTeams,
     cupRound: 0,
     cupFinalPlayed: false,
     finances: myClub.cash,
+    admin: defaultAdmin(myClub),
     ledger: [{ label: "Caixa inicial", amount: myClub.cash }],
     market: [],
     inbox: [],
     news: [],
     lastRoundEvents: null,
     topScorers: [],
-    seed: Date.now() % 1_000_000_000,
+    seed,
   };
 
-  newMessage(career, "welcome", "info", "Bem-vindo ao escritório", `Você assume o ${myClub.name}. Monte o time, escolha a tática e avance a rodada.` + (myClub.division === 2 ? " O clube está na Série B: metas de acesso." : ""));
+  newMessage(career, "welcome", "info", "Bem-vindo ao escritório", `Você assume o ${myClub.name}. Monte o time, escolha a tática e avance a rodada. ${divisionLabel(myClub.division)} tem regras próprias de acesso.`);
   refreshMarket(career);
   return career;
 }
@@ -177,6 +214,7 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
 
   let table = career.table.map((r) => ({ ...r }));
   let seed = career.seed;
+  const roundRng = mulberry32(seed + career.round * 7919);
   const clubs = career.clubs;
   const map = clubMap(clubs);
   let userMatch: MatchResult | null = null;
@@ -210,16 +248,30 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
   // Finanças da rodada
   const myClub = map.get(career.clubId)!;
   const wages = weeklyWages(myClub);
-  const tickets = Math.round((ticketRevenue(myClub, wins > 0 ? "win" : draws > 0 ? "draw" : "loss") * Math.max(1, homeCount)) + (ticketRevenue(myClub, "loss") * awayCount)) * (homeCount > 0 ? 1 : 0);
+  const resultKind = wins > 0 ? "win" : draws > 0 ? "draw" : "loss";
+  const pricePenalty = Math.max(0, career.admin.ticketPrice - 40) / 500;
+  const attendanceRate = Math.max(0.12, Math.min(0.95, 0.32 + myClub.morale / 180 + myClub.rep / 500 - pricePenalty));
+  const effectiveCapacity = Math.round(myClub.stadiumCapacity * (1 + (career.admin.stadiumLevel - 1) * 0.08));
+  const ticketIncome = homeCount > 0 ? Math.round(effectiveCapacity * attendanceRate * career.admin.ticketPrice * homeCount) : 0;
+  const memberIncome = Math.round(career.admin.membershipCount * career.admin.membershipFee / 4);
+  const sponsorIncome = career.admin.sponsorTier * 250_000;
+  const broadcastIncome = career.admin.broadcastTier * (myClub.division === 1 ? 180_000 : myClub.division === 2 ? 90_000 : 45_000);
+  const merchandiseIncome = Math.round((career.admin.membershipCount * 0.08 + 300) * career.admin.merchandisePrice * 0.18);
   const prize = wins * MATCH_PRIZE.win + draws * MATCH_PRIZE.draw;
-  const delta = tickets + prize - wages;
+  const maintenance = career.admin.maintenanceBudget;
+  const debtInterest = Math.round(career.admin.debt * 0.01);
+  const tickets = ticketIncome + memberIncome + sponsorIncome + broadcastIncome + merchandiseIncome;
+  const delta = tickets + prize - wages - maintenance - career.admin.youthBudget - career.admin.scoutingBudget - debtInterest;
   myClub.cash += delta;
   career.finances = myClub.cash;
   career.ledger = [
-    { round: career.round, label: "Receitas (bilheteria + prêmios)", amount: tickets + prize },
+    { round: career.round, label: `Receitas (ingressos, sócios, patrocínio, TV, produtos)`, amount: tickets + prize },
     { round: career.round, label: "Folha salarial", amount: -wages },
+    { round: career.round, label: "Operação, base e scouting", amount: -(maintenance + career.admin.youthBudget + career.admin.scoutingBudget) },
+    ...(debtInterest > 0 ? [{ round: career.round, label: "Juros da dívida", amount: -debtInterest }] : []),
     ...career.ledger,
   ].slice(0, 40);
+  career.admin.membershipCount = Math.max(0, Math.round(career.admin.membershipCount + (resultKind === "win" ? 18 : resultKind === "loss" ? -9 : 3) + (myClub.morale - 70) / 10));
 
   // Evolução dos jogadores do meu clube
   const avg = leagueAverageStrength(myClub.players);
@@ -260,8 +312,8 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
   // Mercado IA: alguns clubes oferecem reforços
   for (const club of clubs) {
     if (club.id === career.clubId) continue;
-    if (Math.random() < 0.15) {
-      const p = club.players[Math.floor(Math.random() * club.players.length)];
+    if (roundRng() < 0.15) {
+      const p = club.players[Math.floor(roundRng() * club.players.length)];
       if (p) {
         newMessage(career, `mk-${club.id}-${career.round}`, "market", `${club.name} oferece reforço`, `${p.name} (${p.strength}) está disponível por ${(playerValue(p) / 1e6).toFixed(1)}M.`);
       }
@@ -347,8 +399,9 @@ function playCupPhase(career: Career, seed: number): void {
   }
   // monta próxima fase a partir dos vencedores
   const shuffled = winners.slice();
+  const drawRng = mulberry32(seed + career.cupRound * 5000 + career.season);
   for (let i = shuffled.length; i > 1; i--) {
-    const j = Math.floor(Math.random() * i);
+    const j = Math.floor(drawRng() * i);
     [shuffled[i - 1], shuffled[j]] = [shuffled[j], shuffled[i - 1]];
   }
   const next: CupFixture[] = [];
@@ -381,13 +434,13 @@ function endOfSeason(career: Career): void {
   const all = career.clubs;
   const userDiv = career.division;
   const realTable = career.table;
-  const syntheticOther = (div: 1 | 2): Standing[] => {
+  const syntheticOther = (div: 1 | 2 | 3): Standing[] => {
     const ids = all.filter((c) => c.division === div).map((c) => c.id);
     const rng = mulberry32(career.seed + 4242 + div);
     return ids
       .map((id) => {
         const club = all.find((c) => c.id === id)!;
-        const played = 14;
+        const played = div === 3 ? 19 : 38;
         const base = (club.rep + club.players.reduce((s, p) => s + p.strength, 0)) / 2;
         const points = Math.round(base * (0.28 + rng() * 0.14));
         const gf = Math.round(base * 0.6 + rng() * 20);
@@ -396,33 +449,44 @@ function endOfSeason(career: Career): void {
       })
       .sort((a, b) => b.points - a.points || (b.gf - b.ga) - (a.gf - a.ga));
   };
-  const makeDivTable = (div: 1 | 2): Standing[] => {
+  const makeDivTable = (div: 1 | 2 | 3): Standing[] => {
     const ids = all.filter((c) => c.division === div).map((c) => c.id);
     if (div === userDiv) return sortByTable(ids.filter((id) => realTable.some((r) => r.clubId === id)).map((id) => realTable.find((r) => r.clubId === id)!));
     return syntheticOther(div);
   };
   const tableA = makeDivTable(1);
   const tableB = makeDivTable(2);
-  const relegate = tableA.slice(-2).map((r) => r.clubId);
-  const promote = tableB.slice(0, 2).map((r) => r.clubId);
-  for (const id of relegate) {
+  const tableC = makeDivTable(3);
+  const relegateA = tableA.slice(-4).map((r) => r.clubId);
+  const promoteA = tableB.slice(0, 4).map((r) => r.clubId);
+  const relegateB = tableB.slice(-4).map((r) => r.clubId);
+  const promoteB = tableC.slice(0, 4).map((r) => r.clubId);
+  for (const id of relegateA) {
     const c = all.find((x) => x.id === id);
     if (c) c.division = 2;
   }
-  for (const id of promote) {
+  for (const id of promoteA) {
     const c = all.find((x) => x.id === id);
     if (c) c.division = 1;
   }
-  newMessage(career, `mv-${career.season}`, "season", "Acesso e rebaixamento", `Sobem: ${promote.map((id) => clubMap(all).get(id)?.name).join(", ")}. Caem: ${relegate.map((id) => clubMap(all).get(id)?.name).join(", ")}.`);
+  for (const id of relegateB) {
+    const c = all.find((x) => x.id === id);
+    if (c) c.division = 3;
+  }
+  for (const id of promoteB) {
+    const c = all.find((x) => x.id === id);
+    if (c) c.division = 2;
+  }
+  newMessage(career, `mv-${career.season}`, "season", "Acesso e rebaixamento", `Sobem: ${promoteA.map((id) => clubMap(all).get(id)?.name).join(", ")} para a Série A; ${promoteB.map((id) => clubMap(all).get(id)?.name).join(", ")} para a Série B. Caem: ${relegateA.map((id) => clubMap(all).get(id)?.name).join(", ")} para a Série B; ${relegateB.map((id) => clubMap(all).get(id)?.name).join(", ")} para a Série C.`);
 
   // nova temporada
   career.season += 1;
   career.round = 1;
-  career.division = myClub.division as 1 | 2;
+  career.division = myClub.division;
   const divIds = all.filter((c) => c.division === career.division).map((c) => c.id);
-  career.fixtures = doubleRoundRobin(divIds);
+  career.fixtures = fixturesForDivision(divIds, career.division);
   career.table = emptyStandings(divIds);
-  career.cup = cupBracket(all.map((c) => c.id));
+  career.cup = cupBracket(all.map((c) => c.id), career.seed + 1);
   career.cupRound = 0;
   career.cupChampion = undefined;
   career.cupFinalPlayed = false;
@@ -444,6 +508,43 @@ export function setTactic(career: Career, tactic: Tactic): Career {
   if (!myClub) throw httpError("Clube não encontrado", 404);
   myClub.tactic = tactic;
   career.tactic = tactic;
+  return career;
+}
+
+export function updateAdmin(career: Career, patch: AdminPatch): Career {
+  const myClub = clubMap(career.clubs).get(career.clubId);
+  if (!myClub) throw httpError("Clube não encontrado", 404);
+  const next = { ...career.admin, ...patch };
+  next.ticketPrice = Math.max(10, Math.min(300, Math.round(next.ticketPrice)));
+  next.membershipFee = Math.max(10, Math.min(1_000, Math.round(next.membershipFee)));
+  next.sponsorTier = Math.max(1, Math.min(5, Math.round(next.sponsorTier)));
+  next.broadcastTier = Math.max(1, Math.min(3, Math.round(next.broadcastTier)));
+  next.merchandisePrice = Math.max(30, Math.min(500, Math.round(next.merchandisePrice)));
+  next.stadiumLevel = Math.max(1, Math.min(5, Math.round(next.stadiumLevel)));
+  next.maintenanceBudget = Math.max(0, Math.min(1_000_000, Math.round(next.maintenanceBudget)));
+  next.youthBudget = Math.max(0, Math.min(2_000_000, Math.round(next.youthBudget)));
+  next.scoutingBudget = Math.max(0, Math.min(2_000_000, Math.round(next.scoutingBudget)));
+  const levelDelta = next.stadiumLevel - career.admin.stadiumLevel;
+  if (levelDelta > 0) {
+    const cost = levelDelta * 750_000;
+    if (myClub.cash < cost) throw httpError("Caixa insuficiente para ampliar o estádio", 400);
+    myClub.cash -= cost;
+    career.finances = myClub.cash;
+    career.ledger = [{ label: `Ampliação do estádio · nível ${next.stadiumLevel}`, amount: -cost }, ...career.ledger].slice(0, 40);
+  }
+  career.admin = next;
+  return career;
+}
+
+export function takeLoan(career: Career, amount: number): Career {
+  const value = Math.round(amount);
+  if (!Number.isFinite(value) || value < 100_000 || value > 10_000_000) throw httpError("Empréstimo deve estar entre R$ 100 mil e R$ 10 milhões", 400);
+  const myClub = clubMap(career.clubs).get(career.clubId)!;
+  myClub.cash += value;
+  career.admin.debt += value;
+  career.finances = myClub.cash;
+  career.ledger = [{ label: "Empréstimo bancário", amount: value }, ...career.ledger].slice(0, 40);
+  newMessage(career, `loan-${career.season}-${career.round}`, "finance", "Crédito aprovado", `R$ ${(value / 1e6).toFixed(1)}M adicionados ao caixa. Juros: 1% por rodada.`);
   return career;
 }
 

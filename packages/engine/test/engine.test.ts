@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  defaultStarters, evolvePlayer, effectivePowers, playerValue, resolvePenalties, simulateMatch,
+  cupBracket, defaultStarters, doubleRoundRobin, evolvePlayer, effectivePowers, playerValue, resolvePenalties, simulateMatch,
   startersOf, type Club, type Player, type Position, type Tactic,
 } from "../src/index.ts";
 
@@ -21,7 +21,7 @@ function club(id: string, players: Player[], tactic: Tactic = "balanced"): Club 
   return {
     id, name: id, city: "Curitiba", country: "BRA", colors: ["#0d3b2e", "#f4ead5"],
     stadiumName: "Campo", stadiumCapacity: 10000, cash: 1_000_000, morale: 70,
-    division: 1, tactic, rep: 50, players,
+    division: 1, tactic, rep: 50, state: "PR", players,
   };
 }
 
@@ -97,5 +97,20 @@ describe("engine", () => {
   it("penalties produce a winner", () => {
     const r = resolvePenalties(30, 30, 123);
     assert.ok(r.winner === "home" || r.winner === "away");
+  });
+
+  it("double round robin creates 38 rounds for 20 clubs", () => {
+    const ids = Array.from({ length: 20 }, (_, index) => `club-${index}`);
+    const fixtures = doubleRoundRobin(ids);
+    assert.equal(fixtures.length, 380);
+    assert.equal(Math.max(...fixtures.map((fixture) => fixture.round)), 38);
+    assert.equal(fixtures.filter((fixture) => fixture.homeId === "club-0").length, 19);
+    assert.equal(fixtures.filter((fixture) => fixture.awayId === "club-0").length, 19);
+  });
+
+  it("cup draw is reproducible with the same seed", () => {
+    const ids = Array.from({ length: 60 }, (_, index) => `club-${index}`);
+    assert.deepEqual(cupBracket(ids, 99), cupBracket(ids, 99));
+    assert.equal(cupBracket(ids, 99)[0].length, 30);
   });
 });

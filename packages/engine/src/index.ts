@@ -1,5 +1,5 @@
 export type {
-  Cards, Club, CupFixture, EventKind, Fixture, InboxMessage, LedgerEntry, MatchEvent, MatchResult,
+  AdminControls, Cards, Club, CupFixture, EventKind, Fixture, InboxMessage, LedgerEntry, MatchEvent, MatchResult,
   Player, Position, Standing, Tactic,
 } from "./types.ts";
 export { mulberry32, pickWeighted } from "./random.ts";
