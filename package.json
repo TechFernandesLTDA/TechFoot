@@ -11,10 +11,14 @@
     "test": "npm run test -w @techfoot/engine",
     "dev:api": "npm run dev -w @techfoot/api",
     "dev:web": "npm run dev -w @techfoot/web",
-    "db:push": "npm run db:push -w @techfoot/api"
+    "db:push": "npm run db:push -w @techfoot/api",
+    "e2e": "npm run e2e -w @techfoot/e2e"
   },
   "license": "MIT",
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "wait-on": "^9.1.0"
   }
 }

@@ -1,108 +1,504 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  applyResult,
-  defaultStarters,
-  emptyStandings,
-  roundRobin,
-  simulateMatch,
-  sortTable,
-  type Club,
-  type Fixture,
-  type MatchResult,
-  type Standing,
+  aiTransferPrice, applyResult, cupBracket, defaultStarters, doubleRoundRobin, emptyStandings,
+  evolvePlayer, leagueAverageStrength, MATCH_PRIZE, mulberry32, nextCupSlot, playerValue, prizeFor,
+  resolvePenalties, ticketRevenue, weeklyWages, simulateMatch,
+  type Club, type CupFixture, type Fixture, type InboxMessage,
+  type LedgerEntry, type MatchResult, type Standing, type Tactic,
 } from "@techfoot/engine";
 
 export type Career = {
   clubId: string;
+  division: 1 | 2;
+  season: number;
   round: number;
+  tactic: Tactic;
   starterIds: string[];
   clubs: Club[];
   table: Standing[];
   fixtures: Fixture[];
-  inbox: { id: string; title: string; body: string; read: boolean }[];
+  cup: CupFixture[][];
+  cupRound: number;
+  cupChampion?: string;
+  cupFinalPlayed: boolean;
+  finances: number;
+  ledger: LedgerEntry[];
+  market: { playerId: string; clubId: string | null; price: number }[];
+  inbox: InboxMessage[];
+  news: string[];
+  lastRoundEvents: MatchResult | null;
+  topScorers: { playerId: string; goals: number }[];
   seed: number;
 };
 
 const worldPath = fileURLToPath(new URL("../../../data/world/liga-br.json", import.meta.url));
 
-export function loadWorld(): { name: string; clubs: Club[] } {
-  return JSON.parse(readFileSync(worldPath, "utf8")) as { name: string; clubs: Club[] };
-}
-
 export function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
 
-export function createCareer(clubId: string): Career {
+export function loadWorld(): { name: string; clubs: Club[] } {
+  return JSON.parse(readFileSync(worldPath, "utf8")) as { name: string; clubs: Club[] };
+}
+
+function newMessage(career: Career, id: string, kind: string, title: string, body: string): void {
+  career.inbox = [{ id, kind, title, body, read: false }, ...career.inbox];
+  career.news = [title, ...career.news].slice(0, 30);
+}
+
+function clubMap(clubs: Club[]): Map<string, Club> {
+  return new Map(clubs.map((c) => [c.id, c]));
+}
+
+export function createCareer(clubId: string, season = 2026): Career {
   const world = loadWorld();
   const club = world.clubs.find((c) => c.id === clubId);
   if (!club) throw httpError("Clube inválido", 400);
   const clubs = structuredClone(world.clubs);
-  const ids = clubs.map((c) => c.id);
-  return {
+  const myClub = clubs.find((c) => c.id === clubId)!;
+  const divisionClubIds = clubs.filter((c) => c.division === myClub.division).map((c) => c.id);
+  const cupTeams = cupBracket(clubs.map((c) => c.id));
+
+  const career: Career = {
     clubId,
+    division: myClub.division as 1 | 2,
+    season,
     round: 1,
-    starterIds: defaultStarters(club.players),
+    tactic: "balanced",
+    starterIds: defaultStarters(myClub.players),
     clubs,
-    table: emptyStandings(ids),
-    fixtures: roundRobin(ids),
-    inbox: [
-      {
-        id: "welcome",
-        title: "Bem-vindo ao escritório",
-        body: `Você assume o ${club.name}. Escale o time e avance a rodada.`,
-        read: false,
-      },
-    ],
+    table: emptyStandings(divisionClubIds),
+    fixtures: doubleRoundRobin(divisionClubIds),
+    cup: cupTeams,
+    cupRound: 0,
+    cupFinalPlayed: false,
+    finances: myClub.cash,
+    ledger: [{ label: "Caixa inicial", amount: myClub.cash }],
+    market: [],
+    inbox: [],
+    news: [],
+    lastRoundEvents: null,
+    topScorers: [],
     seed: Date.now() % 1_000_000_000,
   };
+
+  newMessage(career, "welcome", "info", "Bem-vindo ao escritório", `Você assume o ${myClub.name}. Monte o time, escolha a tática e avance a rodada.` + (myClub.division === 2 ? " O clube está na Série B: metas de acesso." : ""));
+  refreshMarket(career);
+  return career;
+}
+
+function refreshMarket(career: Career): void {
+  const entries = new Map<string, { playerId: string; clubId: string | null; price: number }>();
+  for (const club of career.clubs) {
+    for (const p of club.players) {
+      entries.set(p.id, { playerId: p.id, clubId: club.id, price: playerValue(p) });
+    }
+  }
+  // jogadores livres (sem clube) também entram
+  career.market = [...entries.values()];
+}
+
+function sortTopScorers(career: Career): void {
+  const map = new Map<string, number>();
+  for (const club of career.clubs) for (const p of club.players) map.set(p.id, p.goals);
+  career.topScorers = [...map.entries()]
+    .filter(([, g]) => g > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([playerId, goals]) => ({ playerId, goals }));
+}
+
+function applyCardsAndSuspensions(career: Career, result: MatchResult): void {
+  const m = clubMap(career.clubs);
+  for (const e of result.events) {
+    if (e.kind === "yellow" || e.kind === "red") {
+      const club = m.get(e.teamId);
+      const p = club?.players.find((x) => x.id === e.playerId);
+      if (!p) continue;
+      if (e.kind === "yellow") p.yellows += 1;
+      else {
+        p.reds += 1;
+        p.suspendedGames = 1;
+      }
+    }
+    if (e.kind === "injury" && e.playerId) {
+      // injuredGames já setado na simulação; garantir mínimo
+      const club = m.get(e.teamId);
+      const p = club?.players.find((x) => x.id === e.playerId);
+      if (p && p.injuredGames === 0) p.injuredGames = 1 + Math.floor(Math.random() * 3);
+    }
+  }
+}
+
+function goalScorers(career: Career, result: MatchResult): void {
+  const map = clubMap(career.clubs);
+  for (const e of result.events) {
+    if (e.kind === "goal" && e.playerId) {
+      const p = map.get(e.teamId)?.players.find((x) => x.id === e.playerId);
+      if (p) p.goals += 1;
+    }
+  }
+}
+
+function simulateOne(career: Career, home: Club, away: Club, seed: number): MatchResult {
+  return simulateMatchCtx(career, home, away, seed);
+}
+
+function simulateMatchCtx(career: Career, home: Club, away: Club, seed: number): MatchResult {
+  const starterHome = home.id === career.clubId ? career.starterIds : defaultStarters(home.players);
+  const starterAway = away.id === career.clubId ? career.starterIds : defaultStarters(away.players);
+  const result = simulateMatch(
+    { club: home, starterIds: starterHome, tactic: home.tactic },
+    { club: away, starterIds: starterAway, tactic: away.tactic },
+    seed,
+  );
+  applyCardsAndSuspensions(career, result);
+  goalScorers(career, result);
+  for (const pid of result.injuries) {
+    const club = clubMap(career.clubs).get(findClubOf(career, pid));
+    const p = club?.players.find((x) => x.id === pid);
+    if (p && p.injuredGames === 0) p.injuredGames = 1 + Math.floor(Math.random() * 3);
+  }
+  return result;
+}
+
+function findClubOf(career: Career, playerId: string): string {
+  for (const club of career.clubs) {
+    if (club.players.some((p) => p.id === playerId)) return club.id;
+  }
+  return career.clubId;
 }
 
 export function simulateRound(career: Career): { career: Career; userMatch: MatchResult | null } {
-  const fixtures = career.fixtures.map((f) => ({ ...f }));
+  const fixtures = career.fixtures.map((f) => ({ ...f, result: f.result ? structuredClone(f.result) : undefined }));
   const roundGames = fixtures.filter((f) => f.round === career.round && !f.played);
   if (roundGames.length === 0) throw httpError("Rodada já simulada", 409);
+
   let table = career.table.map((r) => ({ ...r }));
-  let userMatch: MatchResult | null = null;
   let seed = career.seed;
   const clubs = career.clubs;
+  const map = clubMap(clubs);
+  let userMatch: MatchResult | null = null;
+  let homeCount = 0;
+  let awayCount = 0;
+  let wins = 0;
+  let draws = 0;
+  let losses = 0;
+  const results: MatchResult[] = [];
 
   for (const game of roundGames) {
     seed += 1;
-    const home = clubs.find((c) => c.id === game.homeId);
-    const away = clubs.find((c) => c.id === game.awayId);
+    const home = map.get(game.homeId);
+    const away = map.get(game.awayId);
     if (!home || !away) continue;
-    const homeIds = game.homeId === career.clubId ? career.starterIds : defaultStarters(home.players);
-    const awayIds = game.awayId === career.clubId ? career.starterIds : defaultStarters(away.players);
-    const result = simulateMatch({ club: home, starterIds: homeIds }, { club: away, starterIds: awayIds }, seed);
+    if (home.id === career.clubId) homeCount += 1;
+    if (away.id === career.clubId) awayCount += 1;
+    const result = simulateOne(career, home, away, seed);
     game.played = true;
     game.result = result;
+    results.push(result);
     table = applyResult(table, home.id, away.id, result.homeGoals, result.awayGoals);
-    if (game.homeId === career.clubId || game.awayId === career.clubId) userMatch = result;
+    if (game.homeId === career.clubId || game.awayId === career.clubId) {
+      userMatch = result;
+      if (result.homeGoals > result.awayGoals) wins += 1;
+      else if (result.homeGoals === result.awayGoals) draws += 1;
+      else losses += 1;
+    }
   }
 
-  const inbox = [
-    {
-      id: `r${career.round}`,
-      title: `Rodada ${career.round} encerrada`,
-      body: userMatch
-        ? `Placar: ${userMatch.homeGoals} x ${userMatch.awayGoals}`
-        : "Rodada concluída.",
-      read: false,
-    },
-    ...career.inbox,
-  ];
+  // Finanças da rodada
+  const myClub = map.get(career.clubId)!;
+  const wages = weeklyWages(myClub);
+  const tickets = Math.round((ticketRevenue(myClub, wins > 0 ? "win" : draws > 0 ? "draw" : "loss") * Math.max(1, homeCount)) + (ticketRevenue(myClub, "loss") * awayCount)) * (homeCount > 0 ? 1 : 0);
+  const prize = wins * MATCH_PRIZE.win + draws * MATCH_PRIZE.draw;
+  const delta = tickets + prize - wages;
+  myClub.cash += delta;
+  career.finances = myClub.cash;
+  career.ledger = [
+    { round: career.round, label: "Receitas (bilheteria + prêmios)", amount: tickets + prize },
+    { round: career.round, label: "Folha salarial", amount: -wages },
+    ...career.ledger,
+  ].slice(0, 40);
 
-  return {
-    career: {
-      ...career,
-      fixtures,
-      table: sortTable(table),
-      round: career.round + 1,
-      seed,
-      inbox,
-    },
-    userMatch,
+  // Evolução dos jogadores do meu clube
+  const avg = leagueAverageStrength(myClub.players);
+  const rng = mulberry32(seed + 555);
+  if (userMatch) {
+    const resultFor = userMatch.homeGoals > userMatch.awayGoals ? "win" : userMatch.homeGoals === userMatch.awayGoals ? "draw" : "loss";
+    for (const p of myClub.players) {
+      const played = (userMatch.homeId === career.clubId ? userMatch.homeGoals + userMatch.awayGoals >= 0 : true) && career.starterIds.includes(p.id);
+      if (played) {
+        const d = evolvePlayer(p, resultFor, avg, rng);
+        if (d && d.note === "evoluiu") {
+          newMessage(career, `ev-${p.id}`, "evo", "Evolução de força", `${p.name} evoluiu para ${p.strength}.`);
+        }
+      }
+      p.contractGames -= 1;
+      p.suspendedGames = Math.max(0, p.suspendedGames - 1);
+      p.matches += (played ? 1 : 0);
+    }
+  }
+
+  // Contratos: quem zerou vira agente livre (removido do elenco para mercado)
+  const toRelease: string[] = [];
+  for (const club of clubs) {
+    for (const p of club.players) {
+      if (p.contractGames <= 0) toRelease.push(p.id);
+    }
+  }
+  if (toRelease.length) {
+    for (const id of toRelease) {
+      for (const club of clubs) {
+        const idx = club.players.findIndex((p) => p.id === id);
+        if (idx >= 0) club.players.splice(idx, 1);
+      }
+    }
+    newMessage(career, `rel-${career.round}`, "contract", "Contratos encerrados", `${toRelease.length} jogador(es) deixaram os clubes e estão livres no mercado.`);
+  }
+
+  // Mercado IA: alguns clubes oferecem reforços
+  for (const club of clubs) {
+    if (club.id === career.clubId) continue;
+    if (Math.random() < 0.15) {
+      const p = club.players[Math.floor(Math.random() * club.players.length)];
+      if (p) {
+        newMessage(career, `mk-${club.id}-${career.round}`, "market", `${club.name} oferece reforço`, `${p.name} (${p.strength}) está disponível por ${(playerValue(p) / 1e6).toFixed(1)}M.`);
+      }
+    }
+  }
+
+  career.fixtures = fixtures;
+  career.table = sortByTable(table);
+  sortTopScorers(career);
+  refreshMarket(career);
+  career.lastRoundEvents = userMatch;
+
+  // Copa intercalada: uma fase por janela
+  const cupWindows = [4, 8, 12, 14];
+  if (!career.cupFinalPlayed && cupWindows.includes(career.round)) {
+    playCupPhase(career, seed);
+  }
+
+  // Se a última rodada da liga chegou e a copa ainda não terminou, força todas as fases
+  const totalRounds = Math.max(...career.fixtures.map((f) => f.round));
+  if (career.round >= totalRounds && !career.cupFinalPlayed) {
+    let guard = 0;
+    while (!career.cupFinalPlayed && guard < 5) {
+      playCupPhase(career, seed + guard);
+      guard++;
+    }
+  }
+
+  if (career.round >= totalRounds && !career.fixtures.some((f) => !f.played)) {
+    endOfSeason(career);
+    return { career, userMatch: career.lastRoundEvents };
+  }
+
+  career.round += 1;
+  career.seed = seed;
+  return { career, userMatch };
+}
+
+function sortByTable(table: Standing[]): Standing[] {
+  return [...table].sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    const gd = (b.gf - b.ga) - (a.gf - a.ga);
+    return gd !== 0 ? gd : b.gf - a.gf;
+  });
+}
+
+function playCupPhase(career: Career, seed: number): void {
+  const phase = career.cup[career.cupRound];
+  if (!phase) return;
+  const pending = phase.filter((f) => !f.played);
+  if (pending.length === 0) {
+    if (phase.length === 1) {
+      career.cupChampion = phase[0].winnerId;
+      career.cupFinalPlayed = true;
+      newMessage(career, `cup-champ-${career.season}`, "cup", "Campeão da Copa!", `${clubMap(career.clubs).get(phase[0].winnerId!)?.name} venceu a Copa Brasil TechFoot!`);
+    }
+    return;
+  }
+  const map = clubMap(career.clubs);
+  career.cup[career.cupRound] = phase.map((f) => {
+    if (f.played) return f;
+    const home = map.get(f.homeId);
+    const away = map.get(f.awayId);
+    if (!home || !away) return f;
+    const result = simulateOne(career, home, away, seed + career.cupRound * 100 + f.homeId.length);
+    let winnerId: string;
+    let penalties: { home: number; away: number; winner: "home" | "away" } | undefined;
+    if (result.homeGoals !== result.awayGoals) {
+      winnerId = result.homeGoals > result.awayGoals ? home.id : away.id;
+    } else {
+      penalties = resolvePenaltiesCtx(home, away, seed + f.homeId.length);
+      winnerId = penalties.winner === "home" ? home.id : away.id;
+    }
+    newMessage(career, `cup-${f.slot}-${f.homeId}`, "cup", `Copa · ${f.slot}: ${home.name} ${result.homeGoals} x ${result.awayGoals} ${away.name}`, penalties ? `Decisão nos pênaltis. Avança: ${clubMap(career.clubs).get(winnerId)?.name}` : `Avança: ${clubMap(career.clubs).get(winnerId)?.name}`);
+    return { ...f, played: true, winnerId, homeGoals: result.homeGoals, awayGoals: result.awayGoals, penalties };
+  });
+
+  const winners = career.cup[career.cupRound].map((f) => f.winnerId!).filter(Boolean);
+  if (phase.length === 1) {
+    career.cupChampion = winners[0];
+    career.cupFinalPlayed = true;
+    return;
+  }
+  // monta próxima fase a partir dos vencedores
+  const shuffled = winners.slice();
+  for (let i = shuffled.length; i > 1; i--) {
+    const j = Math.floor(Math.random() * i);
+    [shuffled[i - 1], shuffled[j]] = [shuffled[j], shuffled[i - 1]];
+  }
+  const next: CupFixture[] = [];
+  for (let i = 0; i + 1 < shuffled.length; i += 2) {
+    next.push({ slot: nextCupSlot(phase.length), homeId: shuffled[i], awayId: shuffled[i + 1], played: false });
+  }
+  career.cup.push(next);
+  career.cupRound += 1;
+}
+
+function resolvePenaltiesCtx(home: Club, away: Club, seed: number): { home: number; away: number; winner: "home" | "away" } {
+  return resolvePenalties(
+    Math.max(1, home.players.find((p) => p.position === "GK")?.strength ?? 20),
+    Math.max(1, away.players.find((p) => p.position === "GK")?.strength ?? 20),
+    seed,
+  );
+}
+
+function endOfSeason(career: Career): void {
+  const myClub = clubMap(career.clubs).get(career.clubId)!;
+  const finalTable = sortByTable(career.table);
+  const pos = finalTable.findIndex((r) => r.clubId === career.clubId) + 1;
+  const prize = prizeFor(pos);
+  myClub.cash += prize;
+  career.finances = myClub.cash;
+  career.ledger = [{ label: `Premiação (${pos}º lugar)`, amount: prize }, ...career.ledger].slice(0, 40);
+  newMessage(career, `season-${career.season}`, "season", `Temporada ${career.season} encerrada`, `${myClub.name} terminou em ${pos}º lugar na ${career.division === 1 ? "Série A" : "Série B"}. Prêmio: R$ ${(prize / 1e6).toFixed(1)}M.${career.cupChampion ? ` Copa: ${clubMap(career.clubs).get(career.cupChampion)?.name} campeão.` : ""}`);
+
+  // promoção/rebaixamento — tabela por divisão (a do usuário é real; a outra é sintética)
+  const all = career.clubs;
+  const userDiv = career.division;
+  const realTable = career.table;
+  const syntheticOther = (div: 1 | 2): Standing[] => {
+    const ids = all.filter((c) => c.division === div).map((c) => c.id);
+    const rng = mulberry32(career.seed + 4242 + div);
+    return ids
+      .map((id) => {
+        const club = all.find((c) => c.id === id)!;
+        const played = 14;
+        const base = (club.rep + club.players.reduce((s, p) => s + p.strength, 0)) / 2;
+        const points = Math.round(base * (0.28 + rng() * 0.14));
+        const gf = Math.round(base * 0.6 + rng() * 20);
+        const ga = Math.round(base * 0.5 + rng() * 20);
+        return { clubId: id, played, won: 0, drawn: 0, lost: 0, gf, ga, points };
+      })
+      .sort((a, b) => b.points - a.points || (b.gf - b.ga) - (a.gf - a.ga));
   };
+  const makeDivTable = (div: 1 | 2): Standing[] => {
+    const ids = all.filter((c) => c.division === div).map((c) => c.id);
+    if (div === userDiv) return sortByTable(ids.filter((id) => realTable.some((r) => r.clubId === id)).map((id) => realTable.find((r) => r.clubId === id)!));
+    return syntheticOther(div);
+  };
+  const tableA = makeDivTable(1);
+  const tableB = makeDivTable(2);
+  const relegate = tableA.slice(-2).map((r) => r.clubId);
+  const promote = tableB.slice(0, 2).map((r) => r.clubId);
+  for (const id of relegate) {
+    const c = all.find((x) => x.id === id);
+    if (c) c.division = 2;
+  }
+  for (const id of promote) {
+    const c = all.find((x) => x.id === id);
+    if (c) c.division = 1;
+  }
+  newMessage(career, `mv-${career.season}`, "season", "Acesso e rebaixamento", `Sobem: ${promote.map((id) => clubMap(all).get(id)?.name).join(", ")}. Caem: ${relegate.map((id) => clubMap(all).get(id)?.name).join(", ")}.`);
+
+  // nova temporada
+  career.season += 1;
+  career.round = 1;
+  career.division = myClub.division as 1 | 2;
+  const divIds = all.filter((c) => c.division === career.division).map((c) => c.id);
+  career.fixtures = doubleRoundRobin(divIds);
+  career.table = emptyStandings(divIds);
+  career.cup = cupBracket(all.map((c) => c.id));
+  career.cupRound = 0;
+  career.cupChampion = undefined;
+  career.cupFinalPlayed = false;
+  for (const c of all) {
+    for (const p of c.players) {
+      p.injuredGames = 0;
+      p.suspendedGames = 0;
+      p.yellows = 0;
+      p.reds = 0;
+    }
+    c.morale = 65;
+    c.tactic = "balanced";
+  }
+  newMessage(career, `new-${career.season}`, "season", `Temporada ${career.season} começou`, "Novo calendário gerado. Boa sorte!");
+}
+
+export function setTactic(career: Career, tactic: Tactic): Career {
+  const myClub = clubMap(career.clubs).get(career.clubId);
+  if (!myClub) throw httpError("Clube não encontrado", 404);
+  myClub.tactic = tactic;
+  career.tactic = tactic;
+  return career;
+}
+
+export function renewContract(career: Career, playerId: string, games = 38): { career: Career; cost: number } {
+  const myClub = clubMap(career.clubs).get(career.clubId)!;
+  const p = myClub.players.find((x) => x.id === playerId);
+  if (!p) throw httpError("Jogador não está no seu elenco", 404);
+  const cost = Math.round(p.salary * games * 0.5);
+  if (myClub.cash < cost) throw httpError("Caixa insuficiente para renovar", 400);
+  myClub.cash -= cost;
+  p.contractGames = games;
+  career.finances = myClub.cash;
+  career.ledger = [{ label: `Renovação de ${p.name}`, amount: -cost }, ...career.ledger].slice(0, 40);
+  newMessage(career, `ren-${playerId}`, "contract", "Contrato renovado", `${p.name} renovou por ${games} jogos.`);
+  return { career, cost };
+}
+
+export function sellPlayer(career: Career, playerId: string): Career {
+  const myClub = clubMap(career.clubs).get(career.clubId)!;
+  const idx = myClub.players.findIndex((x) => x.id === playerId);
+  if (idx < 0) throw httpError("Jogador não está no seu elenco", 404);
+  const p = myClub.players[idx];
+  const value = aiTransferPrice(p);
+  myClub.players.splice(idx, 1);
+  myClub.cash += value;
+  career.finances = myClub.cash;
+  career.ledger = [{ label: `Venda de ${p.name}`, amount: value }, ...career.ledger].slice(0, 40);
+  newMessage(career, `sel-${playerId}`, "market", "Venda concluída", `${p.name} foi vendido por R$ ${(value / 1e6).toFixed(1)}M e virou agente livre.`);
+  refreshMarket(career);
+  return career;
+}
+
+export function buyPlayer(career: Career, playerId: string): Career {
+  const entry = career.market.find((m) => m.playerId === playerId && m.clubId === career.clubId);
+  if (entry) {
+    // jogador do próprio clube — nada a fazer
+    return career;
+  }
+  const src = clubMap(career.clubs);
+  const owner = career.clubs.find((c) => c.players.some((p) => p.id === playerId));
+  if (!owner) throw httpError("Jogador não encontrado", 404);
+  const myClub = src.get(career.clubId)!;
+  const p = owner.players.find((x) => x.id === playerId)!;
+  const price = playerValue(p);
+  if (myClub.cash < price) throw httpError("Caixa insuficiente", 400);
+  const marketEntry = career.market.find((m) => m.playerId === playerId);
+  const actual = marketEntry ? marketEntry.price : price;
+  if (myClub.players.length >= 22) throw httpError("Elenco cheio (máx. 22)", 400);
+  owner.players.splice(owner.players.findIndex((x) => x.id === playerId), 1);
+  myClub.cash -= actual;
+  p.contractGames = 20;
+  myClub.players.push(p);
+  career.finances = myClub.cash;
+  career.ledger = [{ label: `Compra de ${p.name}`, amount: -actual }, ...career.ledger].slice(0, 40);
+  newMessage(career, `buy-${playerId}`, "market", "Contratação!", `${p.name} chegou ao ${myClub.name} por R$ ${(actual / 1e6).toFixed(1)}M.`);
+  refreshMarket(career);
+  return career;
 }

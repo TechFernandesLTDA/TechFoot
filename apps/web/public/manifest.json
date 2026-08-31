@@ -1,0 +1,11 @@
+{
+  "name": "TechFoot",
+  "short_name": "TechFoot",
+  "description": "Jogo singleplayer de gerenciamento de futebol no browser",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d3b2e",
+  "theme_color": "#0d3b2e",
+  "lang": "pt-BR",
+  "icons": []
+}
