@@ -1,12 +1,16 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { api, type AdminControls, type Career, type Club, type Formation, type MatchResult, type Player, type Tactic, type User } from "./api";
+import {
+  api, type AdminControls, type Career, type Club, type Competition, type CompetitionGroup,
+  type CupFixture, type Formation, type GroupStanding, type MatchResult, type MatchStep,
+  type Player, type StaffRole, type Tactic, type User, type YouthPlayer,
+} from "./api";
 import { tr, type Lang, type TKey } from "./i18n";
 
-type Tab = "home" | "squad" | "fixtures" | "cup" | "market" | "finance" | "inbox" | "league" | "competitions" | "admin" | "report";
-type IconName = "home" | "users" | "calendar" | "trophy" | "market" | "wallet" | "mail" | "table" | "play" | "arrow";
+type Tab = "home" | "squad" | "fixtures" | "cup" | "market" | "finance" | "inbox" | "league" | "competitions" | "admin" | "report" | "match" | "staff" | "youth";
+type IconName = "home" | "users" | "calendar" | "trophy" | "market" | "wallet" | "mail" | "table" | "play" | "arrow" | "tv" | "user" | "graduation";
 
 const POS_ORDER: Record<string, number> = { GK: 0, DF: 1, MF: 2, FW: 3 };
-const TACTIC_LABEL: Record<Tactic, string> = { offensive: "Ofensivo", balanced: "Equilibrado", defensive: "Defensivo" };
+const TACTIC_LABEL: Record<Tactic, string> = { offensive: "Ofensivo", balanced: "Equilibrado", defensive: "Defensivo", pressing: "Pressão", counter: "Contra-Ataque" };
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -190,8 +194,11 @@ export function App() {
           {tab === "inbox" && <Inbox save={save} updateCareer={updateCareer} setError={setError} />}
           {tab === "league" && <League save={save} />}
           {tab === "competitions" && <Competitions save={save} stateCompetitions={stateCompetitions} />}
+          {tab === "staff" && <StaffTab save={save} withSave={withSave} busy={busy} />}
+          {tab === "youth" && <YouthTab save={save} withSave={withSave} busy={busy} />}
           {tab === "admin" && <Administration save={save} withSave={withSave} busy={busy} />}
           {tab === "report" && <Report save={save} />}
+          {tab === "match" && <Match save={save} withSave={withSave} busy={busy} />}
         </main>
       </div>
     </div>
@@ -201,7 +208,8 @@ export function App() {
 const navItems: { tab: Tab; icon: IconName }[] = [
   { tab: "home", icon: "home" }, { tab: "squad", icon: "users" }, { tab: "fixtures", icon: "calendar" },
   { tab: "cup", icon: "trophy" }, { tab: "market", icon: "market" }, { tab: "finance", icon: "wallet" },
-  { tab: "inbox", icon: "mail" }, { tab: "league", icon: "table" }, { tab: "competitions", icon: "calendar" }, { tab: "admin", icon: "wallet" },
+  { tab: "inbox", icon: "mail" }, { tab: "league", icon: "table" }, { tab: "competitions", icon: "calendar" },
+  { tab: "staff", icon: "user" }, { tab: "youth", icon: "graduation" }, { tab: "admin", icon: "wallet" }, { tab: "match", icon: "tv" },
 ];
 
 function AuthScreen({ lang, mode, busy, error, setLang, setMode, onSubmit }: { lang: Lang; mode: "login" | "register"; busy: boolean; error: string; setLang: (lang: Lang) => void; setMode: (mode: "login" | "register") => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -288,9 +296,9 @@ function ClubPicker({ lang, clubs, selected, search, division, letter, loading, 
 
 function Fixtures({ save }: { save: { id: string; career: Career } }) { const c = myClub(save.career); return <div className="page"><PageIntro eyebrow="CALENDÁRIO" title="A temporada não espera." subtitle="Planeje cada rodada, casa ou fora." /><section className="panel table-panel"><div className="table-toolbar"><SectionHeading eyebrow="LIGA NACIONAL TECHFOOT" title="Todos os jogos" /><span className="table-count">{save.career.fixtures.filter((f) => f.played).length} jogados</span></div><div className="responsive-table"><table><thead><tr><th>RODADA</th><th>MANDANTE</th><th></th><th>VISITANTE</th><th>PLACAR</th><th>STATUS</th></tr></thead><tbody>{save.career.fixtures.map((fixture, index) => { const mine = fixture.homeId === c.id || fixture.awayId === c.id; return <tr className={mine ? "is-highlighted" : ""} key={index}><td><span className="round-tag">R{fixture.round}</span></td><td>{clubName(save.career, fixture.homeId)}</td><td className="versus-cell">×</td><td>{clubName(save.career, fixture.awayId)}</td><td className="score-cell">{fixture.result ? `${fixture.result.homeGoals} — ${fixture.result.awayGoals}` : "—"}</td><td><span className={`status-badge ${fixture.played ? "status-badge--done" : "status-badge--next"}`}>{fixture.played ? "ENCERRADO" : "AGENDADO"}</span></td></tr>; })}</tbody></table></div></section></div>; }
 
-function Cup({ save }: { save: { id: string; career: Career } }) { return <div className="page"><PageIntro eyebrow="COMPETIÇÃO NACIONAL" title="Uma copa, quatro noites." subtitle="Mata-mata, pressão e pênaltis." /><section className="panel bracket-panel"><div className="bracket-header"><SectionHeading eyebrow="COPA BRASIL TECHFOOT" title={save.career.cupChampion ? `Campeão: ${clubName(save.career, save.career.cupChampion)}` : "Chave em andamento"} /><span className="trophy-mark"><Icon name="trophy" /></span></div><div className="bracket">{save.career.cup.map((round, ri) => <div className="bracket-round" key={ri}><h4>{round[0]?.slot ?? "FASE"}</h4>{round.map((fixture, fi) => <div className={`bracket-match ${fixture.played ? "is-played" : ""}`} key={fi}><span>{clubName(save.career, fixture.homeId)}</span><b>{fixture.played ? fixture.homeGoals : "·"}</b><span>{clubName(save.career, fixture.awayId)}</span><b>{fixture.played ? fixture.awayGoals : "·"}</b>{fixture.penalties ? <small>PÊN {fixture.penalties.home} — {fixture.penalties.away}</small> : null}</div>)}</div>)}</div></section></div>; }
+function Cup({ save }: { save: { id: string; career: Career } }) { return <div className="page"><PageIntro eyebrow="COMPETIÇÃO NACIONAL" title="Uma copa, seis fases." subtitle="Mata-mata, pressão e pênaltis." /><section className="panel bracket-panel"><div className="bracket-header"><SectionHeading eyebrow="COPA BRASIL TECHFOOT" title={save.career.cupChampion ? `Campeão: ${clubName(save.career, save.career.cupChampion)}` : "Chave em andamento"} /><span className="trophy-mark"><Icon name="trophy" /></span></div><div className="bracket">{save.career.cup.map((round, ri) => <div className="bracket-round" key={ri}><h4>{round[0]?.slot ?? "FASE"}</h4>{round.map((fixture, fi) => <div className={`bracket-match ${fixture.played ? "is-played" : ""}`} key={fi}>{fixture.bye ? <><span>{clubName(save.career, fixture.homeId)}</span><b>·</b><span>avança direto</span><b>·</b></> : <><span>{clubName(save.career, fixture.homeId)}</span><b>{fixture.played ? fixture.homeGoals : "·"}</b><span>{clubName(save.career, fixture.awayId)}</span><b>{fixture.played ? fixture.awayGoals : "·"}</b>{fixture.penalties ? <small>PÊN {fixture.penalties.home} — {fixture.penalties.away}</small> : null}</>}</div>)}</div>)}</div></section></div>; }
 
-function Market({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) { const c = myClub(save.career); const myIds = new Set(c.players.map((p) => p.id)); const buyable = save.career.market.filter((m) => !myIds.has(m.playerId)).slice(0, 18); return <div className="page"><PageIntro eyebrow="MERCADO DE TRANSFERÊNCIAS" title="Encontre a peça certa." subtitle="Talento custa dinheiro. O erro custa pontos." /><section className="panel market-summary"><div><span className="eyebrow">CAIXA DISPONÍVEL</span><strong>R$ {(save.career.finances / 1e6).toFixed(1)}M</strong></div><div><span className="eyebrow">ELENCO</span><strong>{c.players.length}<small>/22</small></strong></div><div><span className="eyebrow">LISTADOS</span><strong>{buyable.length}</strong></div></section><section className="market-grid">{buyable.map((entry) => { const owner = save.career.clubs.find((club) => club.id === entry.clubId); const player = owner?.players.find((item) => item.id === entry.playerId); if (!player) return null; return <article className="market-card" key={entry.playerId}><div className="market-card__top"><span className="player-avatar player-avatar--large">{initials(player.name)}</span><span className="market-price">R$ {(entry.price / 1e6).toFixed(1)}M</span></div><span className="eyebrow">{positionLabel(player.position)} · {owner?.name}</span><h3>{player.name}</h3><div className="market-card__stats"><span><b>{player.strength}</b><small>FORÇA</small></span><span><b>{player.contractGames}</b><small>JOGOS</small></span><span><b>{player.goals}</b><small>GOLS</small></span></div><button className="ghost-button ghost-button--full" disabled={busy} onClick={() => withSave(() => api.buy(save.id, player.id))}>Contratar <Icon name="arrow" /></button></article>; })}</section><section className="panel table-panel"><SectionHeading eyebrow="MEU ELENCO" title="Contratos e saídas" /><div className="responsive-table"><table><thead><tr><th>JOGADOR</th><th>POS</th><th>FORÇA</th><th>CONTRATO</th><th>GOLS</th><th></th></tr></thead><tbody>{c.players.map((player) => <tr key={player.id}><td><span className="table-player"><span className="player-avatar">{initials(player.name)}</span><strong>{player.name}</strong></span></td><td>{positionLabel(player.position)}</td><td className="score-cell">{player.strength}</td><td><span className={player.contractGames <= 5 ? "contract-warning" : ""}>{player.contractGames} jogos</span></td><td>{player.goals}</td><td><span className="action-pair"><button className="mini-button" disabled={busy} onClick={() => withSave(() => api.renew(save.id, player.id))}>Renovar</button><button className="mini-button mini-button--danger" disabled={busy} onClick={() => withSave(() => api.sell(save.id, player.id))}>Vender</button></span></td></tr>)}</tbody></table></div></section></div>; }
+function Market({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) { const c = myClub(save.career); const myIds = new Set(c.players.map((p) => p.id)); const buyable = save.career.market.filter((m) => !myIds.has(m.playerId)).slice(0, 18); return <div className="page"><PageIntro eyebrow="MERCADO DE TRANSFERÊNCIAS" title="Encontre a peça certa." subtitle="Talento custa dinheiro. O erro custa pontos." /><section className="panel market-summary"><div><span className="eyebrow">CAIXA DISPONÍVEL</span><strong>R$ {(save.career.finances / 1e6).toFixed(1)}M</strong></div><div><span className="eyebrow">ELENCO</span><strong>{c.players.length}<small>/22</small></strong></div><div><span className="eyebrow">LISTADOS</span><strong>{buyable.length}</strong></div></section><section className="market-grid">{buyable.map((entry) => { const owner = save.career.clubs.find((club) => club.id === entry.clubId); const player = owner?.players.find((item) => item.id === entry.playerId) ?? save.career.freeAgents.find((item) => item.id === entry.playerId); if (!player) return null; return <article className="market-card" key={entry.playerId}><div className="market-card__top"><span className="player-avatar player-avatar--large">{initials(player.name)}</span><span className="market-price">R$ {(entry.price / 1e6).toFixed(1)}M</span></div><span className="eyebrow">{positionLabel(player.position)} · {owner?.name}</span><h3>{player.name}</h3><div className="market-card__stats"><span><b>{player.strength}</b><small>FORÇA</small></span><span><b>{player.contractGames}</b><small>JOGOS</small></span><span><b>{player.goals}</b><small>GOLS</small></span></div><button className="ghost-button ghost-button--full" disabled={busy} onClick={() => withSave(() => api.buy(save.id, player.id))}>Contratar <Icon name="arrow" /></button></article>; })}</section><section className="panel table-panel"><SectionHeading eyebrow="MEU ELENCO" title="Contratos e saídas" /><div className="responsive-table"><table><thead><tr><th>JOGADOR</th><th>POS</th><th>FORÇA</th><th>CONTRATO</th><th>GOLS</th><th></th></tr></thead><tbody>{c.players.map((player) => <tr key={player.id}><td><span className="table-player"><span className="player-avatar">{initials(player.name)}</span><strong>{player.name}</strong></span></td><td>{positionLabel(player.position)}</td><td className="score-cell">{player.strength}</td><td><span className={player.contractGames <= 5 ? "contract-warning" : ""}>{player.contractGames} jogos</span></td><td>{player.goals}</td><td><span className="action-pair"><button className="mini-button" disabled={busy} onClick={() => withSave(() => api.renew(save.id, player.id))}>Renovar</button><button className="mini-button mini-button--danger" disabled={busy} onClick={() => withSave(() => api.sell(save.id, player.id))}>Vender</button></span></td></tr>)}</tbody></table></div></section></div>; }
 
 function Finance({ save }: { save: { id: string; career: Career } }) { const income = save.career.ledger.filter((entry) => entry.amount > 0).reduce((sum, entry) => sum + entry.amount, 0); const expenses = Math.abs(save.career.ledger.filter((entry) => entry.amount < 0).reduce((sum, entry) => sum + entry.amount, 0)); return <div className="page"><PageIntro eyebrow="GESTÃO FINANCEIRA" title="O caixa também joga." subtitle="Sustente o projeto para chegar ao fim da temporada." /><div className="finance-cards"><Metric icon="wallet" label="Caixa atual" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="saldo disponível" tone="gold" /><Metric icon="arrow" label="Receitas acumuladas" value={`R$ ${(income / 1e6).toFixed(1)}M`} detail="bilheteria e prêmios" tone="green" /><Metric icon="users" label="Despesas acumuladas" value={`R$ ${(expenses / 1e6).toFixed(1)}M`} detail="folha e contratações" tone="red" /></div><section className="panel table-panel"><SectionHeading eyebrow="EXTRATO DA CARREIRA" title="Movimentações recentes" /><div className="ledger">{save.career.ledger.map((entry, index) => <div className="ledger-row" key={`${entry.label}-${index}`}><span className="ledger-icon"><Icon name={entry.amount >= 0 ? "arrow" : "wallet"} /></span><span><strong>{entry.label}</strong><small>{entry.round ? `Rodada ${entry.round}` : "Início da carreira"}</small></span><b className={entry.amount >= 0 ? "amount-positive" : "amount-negative"}>{entry.amount >= 0 ? "+" : "−"} R$ {(Math.abs(entry.amount) / 1e3).toFixed(1)}k</b></div>)}</div></section></div>; }
 
@@ -305,10 +313,136 @@ function Competitions({ save, stateCompetitions }: { save: { id: string; career:
     { label: "Empate", text: position <= 8 ? "Pontua, mas depende dos concorrentes diretos." : "Precisa melhorar o saldo na próxima rodada." },
     { label: "Derrota", text: position >= save.career.table.length - 2 ? "Risco imediato de zona de queda." : "A pressão aumenta no próximo jogo." },
   ];
-  return <div className="page"><PageIntro eyebrow="CALENDÁRIO BRASILEIRO" title="Uma temporada, vários caminhos." subtitle="Brasileirão, Copa do Brasil e estaduais convivem no mesmo calendário." /><section className="competition-grid"><article className="panel competition-hero"><div className="eyebrow">SORTEIO DA TEMPORADA</div><h3>Próximo sorteio auditável</h3><p>Seed <strong>{save.career.seed}</strong> · combinação gerada para a temporada {save.career.season}.</p><div className="draw-chip"><Icon name="calendar" /><span>Rodada {save.career.round}</span><b>{save.career.division === 1 ? "BRASILEIRÃO A" : save.career.division === 2 ? "BRASILEIRÃO B" : "BRASILEIRÃO C"}</b></div></article><article className="panel scenario-panel"><SectionHeading eyebrow="COMBINAÇÕES" title="O que está em jogo" />{scenarios.map((scenario) => <div className="scenario-row" key={scenario.label}><span className={`scenario-mark scenario-mark--${scenario.label.toLowerCase() === "vitória" ? "win" : scenario.label.toLowerCase() === "empate" ? "draw" : "loss"}`}>{scenario.label.slice(0, 1)}</span><div><strong>Se houver {scenario.label.toLowerCase()}</strong><small>{scenario.text}</small></div></div>)}</article></section><section className="panel competition-catalog"><SectionHeading eyebrow="COMPETIÇÕES ATIVAS" title="Mapa do futebol" /><div className="catalog-grid"><CompetitionCard title="Campeonato Brasileiro Série A" format="20 clubes · 38 rodadas" detail="4 rebaixados" tone="gold" /><CompetitionCard title="Campeonato Brasileiro Série B" format="20 clubes · acesso + playoff" detail="4 rebaixados" tone="blue" /><CompetitionCard title="Campeonato Brasileiro Série C" format="20 clubes · fase + grupos" detail="4 acessos" tone="green" /><CompetitionCard title="Copa do Brasil" format="126 clubes · sorteio por fases" detail="final única" tone="red" /></div></section><section className="panel state-panel"><SectionHeading eyebrow="27 FEDERAÇÕES" title="Campeonatos estaduais" /><div className="state-grid">{stateCompetitions.map((competition) => <div className="state-card" key={competition.id}><span>{competition.state}</span><strong>{competition.name.replace("Campeonato ", "")}</strong><small>{competition.qualification === "copa-do-brasil" ? "classifica para Copa do Brasil" : "formato configurável"}</small></div>)}</div></section></div>;
+
+  const competitions = [
+    { key: "copaDoBrasil", label: "Copa do Brasil", icon: "trophy", color: "red" },
+    { key: "libertadores", label: "Libertadores", icon: "trophy", color: "gold" },
+    { key: "sulAmericana", label: "Sul-Americana", icon: "trophy", color: "blue" },
+    { key: "supercopa", label: "Supercopa do Brasil", icon: "trophy", color: "green" },
+    { key: "recopa", label: "Recopa Sul-Americana", icon: "trophy", color: "purple" },
+  ] as const;
+
+  return <div className="page">
+    <PageIntro eyebrow="CALENDÁRIO BRASILEIRO" title="Uma temporada, vários caminhos." subtitle="Brasileirão, Copa do Brasil, Libertadores, Sul-Americana, Supercopa, Recopa e estaduais." />
+    
+    <section className="competition-grid">
+      <article className="panel competition-hero">
+        <div className="eyebrow">SORTEIO DA TEMPORADA</div>
+        <h3>Próximo sorteio auditável</h3>
+        <p>Seed <strong>{save.career.seed}</strong> · combinação gerada para a temporada {save.career.season}.</p>
+        <div className="draw-chip"><Icon name="calendar" /><span>Rodada {save.career.round}</span><b>{save.career.division === 1 ? "BRASILEIRÃO A" : save.career.division === 2 ? "BRASILEIRÃO B" : "BRASILEIRÃO C"}</b></div>
+      </article>
+      <article className="panel scenario-panel">
+        <SectionHeading eyebrow="COMBINAÇÕES" title="O que está em jogo" />
+        {scenarios.map((scenario) => <div className="scenario-row" key={scenario.label}><span className={`scenario-mark scenario-mark--${scenario.label.toLowerCase() === "vitória" ? "win" : scenario.label.toLowerCase() === "empate" ? "draw" : "loss"}`}>{scenario.label.slice(0, 1)}</span><div><strong>Se houver {scenario.label.toLowerCase()}</strong><small>{scenario.text}</small></div></div>)}
+      </article>
+    </section>
+
+    <section className="panel competition-catalog">
+      <SectionHeading eyebrow="COMPETIÇÕES NACIONAIS E INTERNACIONAIS" title="Mapa do futebol" />
+      <div className="catalog-grid">
+        <CompetitionCard title="Campeonato Brasileiro Série A" format="20 clubes · 38 rodadas" detail="4 rebaixados" tone="gold" />
+        <CompetitionCard title="Campeonato Brasileiro Série B" format="20 clubes · acesso + playoff" detail="4 rebaixados" tone="blue" />
+        <CompetitionCard title="Campeonato Brasileiro Série C" format="20 clubes · fase + grupos" detail="4 acessos" tone="green" />
+        <CompetitionCard title="Copa do Brasil" format="92 clubes · potes CBF · ida/volta" detail="final única" tone="red" />
+        <CompetitionCard title="Libertadores" format="32 clubes · 8 grupos + mata-mata" detail="ida/volta" tone="gold" />
+        <CompetitionCard title="Sul-Americana" format="32 clubes · 8 grupos + mata-mata" detail="ida/volta" tone="blue" />
+        <CompetitionCard title="Supercopa do Brasil" format="Campeão BR x Campeão CB" detail="jogo único" tone="green" />
+        <CompetitionCard title="Recopa Sul-Americana" format="Campeão LIB x Campeão SUL" detail="ida/volta" tone="purple" />
+      </div>
+    </section>
+
+    {competitions.map((comp) => {
+      const competition = save.career[comp.key as keyof Career] as Competition | undefined;
+      if (!competition) return null;
+      return <CompetitionDetail key={comp.key} competition={competition} color={comp.color} clubs={save.career.clubs} />;
+    })}
+
+    <section className="panel state-panel">
+      <SectionHeading eyebrow="27 FEDERAÇÕES" title="Campeonatos estaduais" />
+      <div className="state-grid">
+        {stateCompetitions.slice(0, 12).map((comp) => <CompetitionCard key={comp.id} title={comp.name} format={`${comp.stages.join(" → ")}`} detail={`Classifica para ${comp.qualification}`} tone="gray" />)}
+        {stateCompetitions.length > 12 && <CompetitionCard title={`+${stateCompetitions.length - 12} estaduais`} format="Ver todos no calendário" detail="..." tone="gray" />}
+      </div>
+    </section>
+
+    {save.career.estaduais && save.career.estaduais.length > 0 && (
+      <section className="panel state-panel">
+        <SectionHeading eyebrow="SEUS ESTADUAIS" title="Fase atual" />
+        <div className="state-grid">
+          {save.career.estaduais.map((est) => <CompetitionDetail key={est.id} competition={est} color="gray" clubs={save.career.clubs} />)}
+        </div>
+      </section>
+    )}
+
+    {save.career.calendar && (
+      <section className="panel fifa-panel">
+        <SectionHeading eyebrow="JANELAS FIFA" title="Datas internacionais" />
+        <div className="fifa-grid">
+          {save.career.calendar.fifaWindows.map((window) => (
+            <div key={window.id} className={`fifa-window ${save.career.round >= window.startRound && save.career.round <= window.endRound ? "active" : ""}`}>
+              <strong>{window.name}</strong>
+              <small>Rodadas {window.startRound}–{window.endRound}</small>
+              {save.career.round >= window.startRound && save.career.round <= window.endRound && <span className="fifa-badge">ATIVA</span>}
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+  </div>;
 }
 
 function CompetitionCard({ title, format, detail, tone }: { title: string; format: string; detail: string; tone: string }) { return <article className={`catalog-card catalog-card--${tone}`}><span className="catalog-card__line" /><Icon name="calendar" /><h3>{title}</h3><p>{format}</p><small>{detail}</small></article>; }
+
+function CompetitionDetail({ competition, color, clubs }: { competition: Competition; color: string; clubs: Club[] }) {
+  const clubName = (id: string) => clubs.find((c) => c.id === id)?.name ?? id;
+  return <article className={`detail-card detail-card--${color}`}>
+    <div className="detail-header">
+      <span className="detail-badge">{competition.name}</span>
+      <span className="detail-phase">{competition.phase?.toUpperCase()}</span>
+    </div>
+    {competition.champion && <div className="detail-champion"><Icon name="trophy" /><strong>Campeão:</strong> {clubName(competition.champion)}</div>}
+    {competition.bracket && competition.bracket.length > 0 && (
+      <div className="detail-bracket">
+        {competition.bracket.slice(-1)[0].map((match: CupFixture, i: number) => (
+          <div key={i} className={`bracket-match ${match.played ? "played" : ""}`}>
+            <span>{clubName(match.homeId)}</span>
+            <span>{match.played ? `${match.homeGoals} - ${match.awayGoals}` : "vs"}</span>
+            <span>{clubName(match.awayId)}</span>
+            {match.winnerId && <span className="winner">→ {clubName(match.winnerId)}</span>}
+          </div>
+        ))}
+      </div>
+    )}
+    {competition.groups && competition.groups.length > 0 && (
+      <div className="detail-groups">
+        {competition.groups.map((group: CompetitionGroup) => (
+          <div key={group.id} className="group-table">
+            <h4>{group.name}</h4>
+            <div className="group-standings">
+              {group.standings.slice(0, 4).map((standing: GroupStanding, idx: number) => (
+                <div key={standing.clubId} className={`standing-row ${idx < 2 ? "qualified" : ""}`}>
+                  <span>{idx + 1}</span>
+                  <span>{clubName(standing.clubId)}</span>
+                  <span>{standing.points} pts</span>
+                  <span>{standing.gf - standing.ga > 0 ? "+" : ""}{standing.gf - standing.ga}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+    {competition.prizes && (
+      <div className="detail-prizes">
+        <span className="eyebrow">PREMIAÇÃO</span>
+        {Object.entries(competition.prizes).map(([phase, amount]) => (
+          <div key={phase} className="prize-row"><span>{phase}</span><strong>R$ {(Number(amount) / 1e6).toFixed(1)}M</strong></div>
+        ))}
+      </div>
+    )}
+  </article>;
+}
 
 function Administration({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) {
   const [draft, setDraft] = useState<AdminControls>(save.career.admin);
@@ -326,12 +460,168 @@ function Administration({ save, withSave, busy }: { save: { id: string; career: 
     { key: "youthBudget", label: "Categorias de base", min: 0, max: 2000000, step: 50000, suffix: "R$" },
     { key: "scoutingBudget", label: "Scouting", min: 0, max: 2000000, step: 50000, suffix: "R$" },
   ];
-  return <div className="page"><PageIntro eyebrow="ADMINISTRAÇÃO DO CLUBE" title="Você decide o orçamento." subtitle="Cada controle altera a renda, o risco e a capacidade de competir." action={<button className="primary-cta primary-cta--compact" disabled={busy} onClick={() => withSave(() => api.admin(save.id, draft))}>Aplicar plano <Icon name="arrow" /></button>} /><div className="admin-overview"><Metric icon="wallet" label="Caixa" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="disponível" tone="gold" /><Metric icon="users" label="Sócios" value={String(save.career.admin.membershipCount)} detail={`R$ ${save.career.admin.membershipFee}/mês`} tone="green" /><Metric icon="market" label="Dívida" value={`R$ ${(save.career.admin.debt / 1e6).toFixed(1)}M`} detail="juros de 1% / rodada" tone="red" /></div><div className="admin-layout"><section className="panel controls-panel"><SectionHeading eyebrow="10 CONTROLES" title="Alavancas do clube" /><div className="control-grid">{controls.map((control) => <label className="range-control" key={control.key}><span><strong>{control.label}</strong><output>{control.suffix === "R$" ? `R$ ${formatControlValue(control.key, draft[control.key])}` : `${formatControlValue(control.key, draft[control.key])}${control.suffix}`}</output></span><input type="range" min={control.min} max={control.max} step={control.step} value={draft[control.key] as number} onChange={(event) => update(control.key, Number(event.target.value))} /></label>)}</div></section><section className="panel loan-panel"><SectionHeading eyebrow="CRÉDITO" title="Fôlego de caixa" /><p>Empréstimos ajudam numa crise, mas comprometem as próximas rodadas.</p><label className="field field--dark"><span>Valor</span><input type="number" min={100000} max={10000000} step={100000} value={loanAmount} onChange={(event) => setLoanAmount(Number(event.target.value))} /></label><button className="ghost-button ghost-button--full" disabled={busy} onClick={() => withSave(() => api.loan(save.id, loanAmount))}>Solicitar empréstimo <Icon name="arrow" /></button><div className="loan-warning"><span>ATENÇÃO</span><small>O juros de 1% é debitado por rodada.</small></div></section></div></div>;
+  return <div className="page"><PageIntro eyebrow="ADMINISTRAÇÃO DO CLUBE" title="Você decide o orçamento." subtitle="Cada controle altera a renda, o risco e a capacidade de competir." action={<button className="primary-cta primary-cta--compact" disabled={busy} onClick={() => withSave(() => api.admin(save.id, draft))}>Aplicar plano <Icon name="arrow" /></button>} /><div className="admin-overview"><Metric icon="wallet" label="Caixa" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="disponível" tone="gold" /><Metric icon="users" label="Sócios" value={String(save.career.admin.membershipCount)} detail={`R$ ${save.career.admin.membershipFee}/mês`} tone="green" /><Metric icon="market" label="Dívida" value={`R$ ${(save.career.admin.debt / 1e6).toFixed(1)}M`} detail="juros 1% + amortização 2,5% / rodada" tone="red" /></div><div className="admin-layout"><section className="panel controls-panel"><SectionHeading eyebrow="10 CONTROLES" title="Alavancas do clube" /><div className="control-grid">{controls.map((control) => <label className="range-control" key={control.key}><span><strong>{control.label}</strong><output>{control.suffix === "R$" ? `R$ ${formatControlValue(control.key, draft[control.key])}` : `${formatControlValue(control.key, draft[control.key])}${control.suffix}`}</output></span><input type="range" min={control.min} max={control.max} step={control.step} value={draft[control.key] as number} onChange={(event) => update(control.key, Number(event.target.value))} /></label>)}</div></section><section className="panel loan-panel"><SectionHeading eyebrow="CRÉDITO" title="Fôlego de caixa" /><p>Empréstimos ajudam numa crise, mas comprometem as próximas rodadas.</p><label className="field field--dark"><span>Valor</span><input type="number" min={100000} max={10000000} step={100000} value={loanAmount} onChange={(event) => setLoanAmount(Number(event.target.value))} /></label><button className="ghost-button ghost-button--full" disabled={busy} onClick={() => withSave(() => api.loan(save.id, loanAmount))}>Solicitar empréstimo <Icon name="arrow" /></button><div className="loan-warning"><span>ATENÇÃO</span><small>O juros de 1% é debitado por rodada.</small></div></section></div></div>;
 }
 
 function formatControlValue(key: keyof AdminControls, value: number): string { if (key === "sponsorTier" || key === "broadcastTier" || key === "stadiumLevel") return String(value); return value >= 1000000 ? `${(value / 1000000).toFixed(1)}M` : value >= 1000 ? `${(value / 1000).toFixed(0)}k` : String(value); }
 
 function Report({ save }: { save: { id: string; career: Career } }) { const match = save.career.lastRoundEvents; if (!match) return <div className="page"><EmptyState icon="play" title="Nenhum jogo simulado" text="Simule uma rodada no escritório para ver o relatório." /></div>; return <div className="page"><PageIntro eyebrow="RELATÓRIO DE PARTIDA" title="O jogo terminou. A análise começa." subtitle="Cada lance fica registrado para sua próxima decisão." /><section className="panel report-score"><div className="report-side"><span className="club-crest club-crest--large crest--1"><span>{abbr(clubName(save.career, match.homeId))}</span></span><strong>{clubName(save.career, match.homeId)}</strong></div><div className="report-result"><span>{match.homeGoals}</span><b>—</b><span>{match.awayGoals}</span><small>FINAL</small></div><div className="report-side"><span className="club-crest club-crest--large crest--2"><span>{abbr(clubName(save.career, match.awayId))}</span></span><strong>{clubName(save.career, match.awayId)}</strong></div><div className="report-meta"><span>CHUTES <b>{match.shots.home} × {match.shots.away}</b></span><span>CARTÕES <b>{match.cards.home.yellow + match.cards.home.red} × {match.cards.away.yellow + match.cards.away.red}</b></span><span>LESÕES <b>{match.injuries.length}</b></span></div></section><section className="panel timeline-panel"><SectionHeading eyebrow="NARRAÇÃO AO VIVO" title="Linha do tempo" /><div className="timeline">{match.events.map((event, index) => <div className={`timeline-event timeline-event--${event.kind}`} key={`${event.minute}-${index}`}><span className="timeline-minute">{event.minute}'</span><span className="timeline-marker"><Icon name={event.kind === "goal" ? "trophy" : event.kind === "whistle" ? "play" : "arrow"} /></span><div><strong>{event.text}</strong><small>{clubName(save.career, event.teamId)}{event.playerId ? ` · ${playerShort(save.career, event.playerId)}` : ""}</small></div></div>)}</div></section></div>; }
+
+function Match({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) {
+  const [phase, setPhase] = useState<"preview" | "live" | "finished">("preview");
+  const [steps, setSteps] = useState<MatchStep[]>([]);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [speed, setSpeed] = useState(1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const intervalRef = useRef<number | null>(null);
+  const c = myClub(save.career);
+  const nextFixture = save.career.fixtures.find((f) => f.round === save.career.round && !f.played && (f.homeId === c.id || f.awayId === c.id));
+  const opponent = nextFixture ? (nextFixture.homeId === c.id ? clubName(save.career, nextFixture.awayId) : clubName(save.career, nextFixture.homeId)) : "—";
+  const isHome = nextFixture ? nextFixture.homeId === c.id : true;
+
+  useEffect(() => {
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, []);
+
+  const startMatch = () => {
+    if (!nextFixture || busy) return;
+    withSave(async () => {
+      const result = await api.simulateMatch(save.id);
+      setSteps(result.steps);
+      setPhase("live");
+      setCurrentStep(0);
+      setIsPlaying(true);
+      return { career: result.career };
+    });
+  };
+
+  const togglePlay = () => {
+    if (phase === "finished") return;
+    setIsPlaying((prev) => !prev);
+  };
+
+  const setSpeedValue = (value: number) => {
+    setSpeed(value);
+  };
+
+  useEffect(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (!isPlaying || phase !== "live") return;
+    const baseInterval = 800;
+    intervalRef.current = window.setInterval(() => {
+      setCurrentStep((prev) => {
+        const next = prev + 1;
+        if (next >= steps.length) {
+          setIsPlaying(false);
+          setPhase("finished");
+          return prev;
+        }
+        return next;
+      });
+    }, baseInterval / speed);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [isPlaying, speed, steps.length, phase]);
+
+  const current = steps[currentStep];
+  const isLive = phase === "live";
+  const isFinished = phase === "finished";
+  const homeGoals = current?.result?.homeGoals ?? steps.find((s) => s.result)?.result?.homeGoals ?? 0;
+  const awayGoals = current?.result?.awayGoals ?? steps.find((s) => s.result)?.result?.awayGoals ?? 0;
+  const minute = current?.minute ?? (isFinished ? 90 : 0);
+  const events = steps.flatMap((s) => s.events).filter((e) => e.minute <= minute);
+
+  return (
+    <div className="page">
+      <PageIntro
+        eyebrow="PARTIDA AO VIVO"
+        title={phase === "preview" ? "Próximo compromisso" : "Jogo em andamento"}
+        subtitle={phase === "preview" ? `Rodada ${save.career.round} · ${isHome ? "Mandante" : "Visitante"}` : `${minute}'`}
+        action={phase === "preview" && nextFixture ? (
+          <button className="primary-cta primary-cta--compact" onClick={startMatch} disabled={busy}>
+            <Icon name="play" /> IR PARA PARTIDA
+          </button>
+        ) : phase === "live" ? (
+          <div className="match-controls">
+            <button className="ghost-button" onClick={togglePlay} disabled={busy}>
+              {isPlaying ? <> <Icon name="play" /> PAUSAR </> : <> <Icon name="play" /> CONTINUAR </>}
+            </button>
+            <div className="speed-selector">
+              <span className="eyebrow">VELOCIDADE</span>
+              <div className="speed-buttons">
+                {[1, 2, 3].map((s) => (
+                  <button
+                    key={s}
+                    className={`speed-btn ${speed === s ? "is-active" : ""}`}
+                    onClick={() => setSpeedValue(s)}
+                    disabled={busy}
+                  >
+                    {s}x
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      />
+      <section className="panel match-panel">
+        <div className="match-header">
+          <div className="match-team">
+            <span className="club-crest club-crest--large crest--1"><span>{abbr(c.name)}</span></span>
+            <strong>{c.name}</strong>
+            <small>{isHome ? "MANDANTE" : "VISITANTE"}</small>
+          </div>
+          <div className="match-score">
+            <span className={`score-team ${isHome ? "home" : "away"}`}>{isHome ? homeGoals : awayGoals}</span>
+            <span className="score-sep">—</span>
+            <span className={`score-team ${!isHome ? "home" : "away"}`}>{!isHome ? homeGoals : awayGoals}</span>
+            <small className="match-minute">{minute}' {isFinished ? "FIM" : isLive ? "AO VIVO" : "PRÉ-JOGO"}</small>
+          </div>
+          <div className="match-team match-team--away">
+            <span className="club-crest club-crest--large crest--2"><span>{abbr(opponent)}</span></span>
+            <strong>{opponent}</strong>
+            <small>{isHome ? "VISITANTE" : "MANDANTE"}</small>
+          </div>
+        </div>
+        <div className="match-stats">
+          <div className="stat-col">
+            <span className="eyebrow">CHUTES</span>
+            <strong>{current?.result?.shots?.home ?? 0} × {current?.result?.shots?.away ?? 0}</strong>
+          </div>
+          <div className="stat-col">
+            <span className="eyebrow">CARTÕES</span>
+            <strong>
+              {(current?.result?.cards?.home?.yellow ?? 0) + (current?.result?.cards?.home?.red ?? 0)} ×
+              {(current?.result?.cards?.away?.yellow ?? 0) + (current?.result?.cards?.away?.red ?? 0)}
+            </strong>
+          </div>
+          <div className="stat-col">
+            <span className="eyebrow">FALTAS</span>
+            <strong>{current?.result?.fouls?.home ?? 0} × {current?.result?.fouls?.away ?? 0}</strong>
+          </div>
+        </div>
+        <SectionHeading eyebrow="NARRAÇÃO" title={isLive ? `Minuto ${minute}` : isFinished ? "Fim de jogo" : "Aguardando início"} />
+        <div className="timeline">
+          {events.length === 0 ? (
+            <div className="timeline-empty">Aguardando o apito inicial...</div>
+          ) : (
+            events.slice().reverse().map((event, index) => (
+              <div className={`timeline-event timeline-event--${event.kind}`} key={`${event.minute}-${index}`}>
+                <span className="timeline-minute">{event.minute}'</span>
+                <span className="timeline-marker">
+                  <Icon name={event.kind === "goal" ? "trophy" : event.kind === "whistle" ? "play" : event.kind === "yellow" ? "arrow" : event.kind === "red" ? "arrow" : event.kind === "injury" ? "arrow" : event.kind === "substitution" ? "arrow" : "arrow"} />
+                </span>
+                <div>
+                  <strong>{event.text}</strong>
+                  <small>{clubName(save.career, event.teamId)}{event.playerId ? ` · ${playerShort(save.career, event.playerId)}` : ""}</small>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
 
 function MiniTable({ save, expanded = false }: { save: { id: string; career: Career }; expanded?: boolean }) { const rows = expanded ? save.career.table : save.career.table.slice(0, 5); return <div className="mini-table"><div className="mini-table__head"><span>#</span><span>CLUBE</span><span>P</span><span>J</span><span>SG</span></div>{rows.map((row, index) => <div className={`mini-table__row ${row.clubId === save.career.clubId ? "is-current" : ""}`} key={row.clubId}><b>{String(index + 1).padStart(2, "0")}</b><span><i className={`club-dot club-dot--${index % 4}`} />{clubName(save.career, row.clubId)}</span><strong>{row.points}</strong><span>{row.played}</span><span>{row.gf - row.ga > 0 ? "+" : ""}{row.gf - row.ga}</span></div>)}</div>; }
 
@@ -341,9 +631,9 @@ function Metric({ icon, label, value, detail, tone = "neutral" }: { icon: IconNa
 function Stat({ label, value }: { label: string; value: string }) { return <span className="stat"><strong>{value}</strong><small>{label}</small></span>; }
 function EmptyState({ icon, title, text }: { icon: IconName; title: string; text: string }) { return <div className="empty-state"><span><Icon name={icon} /></span><strong>{title}</strong><p>{text}</p></div>; }
 function Alert({ message }: { message: string }) { return <div className="alert" role="alert"><Icon name="arrow" />{message}</div>; }
-function Icon({ name }: { name: IconName }) { const paths: Record<IconName, ReactNode> = { home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" /></>, users: <><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3 2-5 6-5s6 2 6 5" /><path d="M16 5.5a3 3 0 0 1 0 5.8M17 15c2.5.3 4 2 4 5" /></>, calendar: <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 9h18" /></>, trophy: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0Z" /><path d="M7 6H3v2a4 4 0 0 0 4 4M17 6h4v2a4 4 0 0 1-4 4" /></>, market: <><path d="M4 7h16l-1 13H5L4 7Z" /><path d="M8 10V5a4 4 0 0 1 8 0v5" /></>, wallet: <><path d="M3 6a2 2 0 0 1 2-2h14v16H5a2 2 0 0 1-2-2V6Z" /><path d="M3 7h16M15 13h2" /></>, mail: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="m4 7 8 6 8-6" /></>, table: <><path d="M4 5h16v15H4zM4 10h16M10 5v15" /></>, play: <><path d="m8 5 11 7-11 7V5Z" /></>, arrow: <><path d="M5 12h13M13 6l6 6-6 6" /></> }; return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>; }
+function Icon({ name }: { name: IconName }) { const paths: Record<IconName, ReactNode> = { home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" /></>, users: <><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3 2-5 6-5s6 2 6 5" /><path d="M16 5.5a3 3 0 0 1 0 5.8M17 15c2.5.3 4 2 4 5" /></>, calendar: <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 9h18" /></>, trophy: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0Z" /><path d="M7 6H3v2a4 4 0 0 0 4 4M17 6h4v2a4 4 0 0 1-4 4" /></>, market: <><path d="M4 7h16l-1 13H5L4 7Z" /><path d="M8 10V5a4 4 0 0 1 8 0v5" /></>, wallet: <><path d="M3 6a2 2 0 0 1 2-2h14v16H5a2 2 0 0 1-2-2V6Z" /><path d="M3 7h16M15 13h2" /></>, mail: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="M4 7 8 6 8-6" /></>, table: <><path d="M4 5h16v15H4zM4 10h16M10 5v15" /></>, play: <><path d="m8 5 11 7-11 7V5Z" /></>, arrow: <><path d="M5 12h13M13 6l6 6-6 6" /></>, tv: <><rect x="2" y="7" width="20" height="15" rx="2" /><path d="M17 22v-5M7 22v-5" /></>, user: <><circle cx="12" cy="7" r="4" /><path d="M5.5 21a8.5 8.5 0 0 1 13 0" /></>, graduation: <><path d="M22 10v6M2 10l10-5 10 5-10 5z" /><path d="M6 12.5v5c0 2 3 3.5 6 3.5s6-1.5 6-3.5v-5" /></> }; return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>; }
 
-function label(t: Tab, lang: Lang): string { if (t === "competitions") return "Competições"; if (t === "admin") return "Administração"; const labels: Record<Exclude<Tab, "competitions" | "admin">, TKey> = { home: "office", squad: "squad", fixtures: "fixtures", cup: "cup", market: "market", finance: "finance", inbox: "inbox", league: "table", report: "match" }; return tr(lang, labels[t as Exclude<Tab, "competitions" | "admin">]); }
+function label(t: Tab, lang: Lang): string { if (t === "competitions") return "Competições"; if (t === "admin") return "Administração"; if (t === "match") return "Partida"; if (t === "staff") return "Comissão"; if (t === "youth") return "Base"; const labels: Record<Exclude<Tab, "competitions" | "admin" | "match" | "staff" | "youth">, TKey> = { home: "office", squad: "squad", fixtures: "fixtures", cup: "cup", market: "market", finance: "finance", inbox: "inbox", league: "table", report: "match" }; return tr(lang, labels[t as Exclude<Tab, "competitions" | "admin" | "match" | "staff" | "youth">]); }
 function myClub(career: Career): Club { return career.clubs.find((club) => club.id === career.clubId)!; }
 function clubName(career: Career, id?: string | null): string { return career.clubs.find((club) => club.id === id)?.name ?? id ?? "?"; }
 function divisionLabel(division: number): string { return division === 1 ? "Série A" : division === 2 ? "Série B" : "Série C"; }
@@ -360,3 +650,138 @@ function positionOf(career: Career): number { const index = career.table.findInd
 function roundCount(career: Career): number { return Math.max(1, ...career.fixtures.map((fixture) => fixture.round)); }
 function resultClass(result: MatchResult, clubId: string): string { const won = result.homeId === clubId ? result.homeGoals > result.awayGoals : result.awayGoals > result.homeGoals; const draw = result.homeGoals === result.awayGoals; return won ? "form-pill--win" : draw ? "form-pill--draw" : "form-pill--loss"; }
 function resultLetter(result: MatchResult, clubId: string): string { const kind = resultClass(result, clubId); return kind.includes("win") ? "V" : kind.includes("draw") ? "E" : "D"; }
+
+const ROLE_LABEL: Record<StaffRole, string> = {
+  head_coach: "Técnico Principal",
+  assistant_coach: "Auxiliar Técnico",
+  fitness_coach: "Preparador Físico",
+  gk_coach: "Treinador de Goleiros",
+  scout: "Olheiro",
+  medical_director: "Diretor Médico",
+  physio: "Fisioterapeuta",
+  youth_coach_u20: "Técnico Sub-20",
+  youth_coach_u17: "Técnico Sub-17",
+};
+
+const PERSONALITY_LABEL: Record<YouthPlayer["personality"], string> = {
+  professional: "Profissional",
+  ambitious: "Ambicioso",
+  balanced: "Equilibrado",
+  casual: "Descontraído",
+  difficult: "Difícil",
+};
+
+function StaffTab({ save, busy }: { save: { id: string; career: Career }; withSave?: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) {
+  const career = save.career;
+  const staff = career.staff ?? [];
+  const totalSalary = staff.reduce((sum, s) => sum + s.salary, 0);
+  
+  return (
+    <div className="page">
+      <PageIntro eyebrow="COMISSÃO TÉCNICA" title="Staff do clube" subtitle={`${staff.length} membros · R$ ${(totalSalary / 1e6).toFixed(2)}M/rodada em salários`} />
+      <div className="staff-grid">
+        {staff.map((member) => (
+          <article className="staff-card" key={member.id}>
+            <div className="staff-card__head">
+              <span className="staff-avatar">{initials(member.name)}</span>
+              <div>
+                <strong>{member.name}</strong>
+                <small>{ROLE_LABEL[member.role]} · {member.age} anos</small>
+              </div>
+              <b>{member.reputation}<small>REP</small></b>
+            </div>
+            <div className="staff-skills">
+              {Object.entries(member.skills).map(([skill, value]) => (
+                <div className="skill-mini" key={skill}>
+                  <span>{skill.toUpperCase()}</span>
+                  <div className="skill-bar-mini"><i style={{ width: `${Number(value)}%` }} /></div>
+                  <b>{Number(value)}</b>
+                </div>
+              ))}
+            </div>
+            <div className="staff-meta">
+              <span>Salário: R$ ${(member.salary / 1000).toFixed(0)}k/rod</span>
+              <span>Contrato: {member.contractGames} jogos</span>
+              <span>Formação: {member.preferredFormation}</span>
+              <span>Tática: {member.preferredTactic}</span>
+            </div>
+            <div className="staff-actions">
+              <button className="ghost-button" disabled={busy}>Renovar</button>
+              <button className="ghost-button danger" disabled={busy}>Dispensar</button>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="panel panel--dark">
+        <SectionHeading eyebrow="CONTRATAÇÕES" title="Buscar no mercado" />
+        <div className="hiring-grid">
+          {(["head_coach", "assistant_coach", "fitness_coach", "gk_coach", "scout", "medical_director", "physio", "youth_coach_u20", "youth_coach_u17"] as StaffRole[]).map((role) => (
+            <button key={role} className="hiring-card" disabled={busy}>
+              <span className="hiring-role">{ROLE_LABEL[role]}</span>
+              <span className="hiring-cost">~R$ ${(ROLE_BASE_SALARY[role] / 1000).toFixed(0)}k/rod</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function YouthTab({ save, busy }: { save: { id: string; career: Career }; withSave?: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) {
+  const career = save.career;
+  const youthTeams = career.youthTeams ?? [];
+  
+  return (
+    <div className="page">
+      <PageIntro eyebrow="CATEGORIAS DE BASE" title="Futuro do clube" subtitle={`${youthTeams.length} categorias ativas`} />
+      {youthTeams.map((team) => (
+        <section className="panel youth-panel" key={team.category}>
+          <div className="panel-kicker">{team.category.toUpperCase()} · {team.players.length} jogadores</div>
+          {team.coachId && (
+            <div className="youth-coach">
+              <Icon name="user" /><strong>Treinador:</strong> {career.staff.find(s => s.id === team.coachId)?.name ?? "—"}
+            </div>
+          )}
+          <div className="youth-grid">
+            {team.players
+              .sort((a, b) => b.potential - a.potential)
+              .slice(0, 22)
+              .map((player) => (
+                <article className="youth-card" key={player.id}>
+                  <div className="youth-card__head">
+                    <span className="player-avatar">{initials(player.name)}</span>
+                    <div>
+                      <strong>{player.name}</strong>
+                      <small>{positionLabel(player.position)} · {player.age} anos</small>
+                    </div>
+                    <b>{player.potential}<small>POT</small></b>
+                  </div>
+                  <div className="youth-skills">
+                    <div className="skill-mini"><span>FOR</span><b>{Math.round((player.skills.pace + player.skills.finishing + player.skills.passing + player.skills.marking + player.skills.tackling + player.skills.handling + player.skills.stamina) / 7)}</b></div>
+                    <div className="skill-mini"><span>POT</span><b>{player.potential}</b></div>
+                    <div className="skill-mini"><span>PERS</span><b>{PERSONALITY_LABEL[player.personality]}</b></div>
+                  </div>
+                  <div className="youth-actions">
+                    <button className="ghost-button primary" disabled={busy}>Promover</button>
+                    <button className="ghost-button danger" disabled={busy}>Dispensar</button>
+                  </div>
+                </article>
+              ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+const ROLE_BASE_SALARY: Record<StaffRole, number> = {
+  head_coach: 150_000,
+  assistant_coach: 80_000,
+  fitness_coach: 60_000,
+  gk_coach: 55_000,
+  scout: 50_000,
+  medical_director: 70_000,
+  physio: 45_000,
+  youth_coach_u20: 40_000,
+  youth_coach_u17: 35_000,
+};

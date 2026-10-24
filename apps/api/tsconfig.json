@@ -3,7 +3,13 @@
   "compilerOptions": {
     "rootDir": ".",
     "noEmit": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src", "prisma"]
+  "include": [
+    "src",
+    "prisma",
+    "test"
+  ]
 }

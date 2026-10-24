@@ -7,7 +7,7 @@ import { prisma } from "./db.ts";
 import { hashPassword, readToken, signToken, verifyPassword } from "./auth.ts";
 import {
   buyPlayer, createCareer, httpError, loadWorld, renewContract, sellPlayer, simulateRound, setTactic, takeLoan,
-  updateAdmin, normalizeCareer, setMatchPlan,
+  updateAdmin, normalizeCareer, setMatchPlan, simulateNextMatch,
   type Career,
 } from "./career.ts";
 
@@ -197,6 +197,13 @@ app.post("/saves/:id/simulate-round", { config: { rateLimit: { max: 60, timeWind
   const { career: next, userMatch } = simulateRound(career);
   await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(next) } });
   return { career: next, userMatch };
+});
+
+app.post("/saves/:id/simulate-match", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (req) => {
+  const { save, career } = await loadSave(req as never);
+  const { career: next, steps } = simulateNextMatch(career);
+  await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(next) } });
+  return { career: next, steps };
 });
 
 app.post("/saves/:id/market/buy", async (req) => {

@@ -11,13 +11,13 @@ Org: [TechFernandesLTDA](https://github.com/TechFernandesLTDA) · MIT
 - **60 clubes brasileiros** das séries A, B e C de 2026, com nomes reais e jogadores fictícios
 - **27 catálogos estaduais** com formato configurável e classificação para a Copa do Brasil
 - Seleção inicial compacta com busca por nome/cidade/estado, filtro por série e navegação alfabética
-- **Motor determinístico** (seed): partida minuto a minuto, mando de campo, duelo, cartões, lesões, evolução de força
+- **Motor determinístico** (seed): partida minuto a minuto, chances proporcionais a ataque × defesa, mando de campo, goleiro, faltas e cartões por temperamento, lesões com gravidade e substituição automática (calibrado em ~2,7 gols e ~4 amarelos por jogo)
 - Jogadores com idade, XP de 0 a 100, posições preferidas, condição, moral e oito skills influentes
 - Plano de jogo com titulares, até cinco reservas, formação, capitão e substituições programadas
-- **Tática** (ofensivo / equilibrado / defensivo) e **moral** do clube afetando o desempenho
-- **Copa** mata-mola com pênaltis, intercalada na temporada
-- **Fim de temporada**: campeão, prêmios, acesso e rebaixamento, novo calendário
-- **Economia**: bilheteria, folha salarial, prêmios, compra/venda e renovação de jogadores
+- **Tática** (ofensivo / equilibrado / defensivo) como trade-off real, **formação** que define quem joga em cada setor (jogador fora de posição rende menos) e **moral** do clube afetando o desempenho
+- **Copa** mata-mata de 60 clubes (byes por reputação, seis fases) com pênaltis realistas, intercalada na temporada
+- **Fim de temporada**: campeão, prêmios por divisão, acesso e rebaixamento, reputação, envelhecimento, aposentadorias e jovens da base
+- **Economia**: bilheteria com elasticidade de preço, sócios, patrocínio limitado pela reputação, TV por divisão, folha, prêmios, compra/venda sem arbitragem (comprar custa mais do que vender), renovação com luvas e salário de mercado, empréstimo com juros e amortização
 - **Administração**: preço de ingresso, sócios, patrocínio, transmissão, produtos, estádio, manutenção, base, scouting e empréstimos
 - Uma carreira ativa fica vinculada ao clube escolhido; não existe troca de time durante o save
 - **Inbox** com notificações (lesão, suspensão, contrato, mercado)

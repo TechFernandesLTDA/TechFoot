@@ -1,7 +1,9 @@
 const json = (r: Response) => r.json();
 
-export type Tactic = "offensive" | "balanced" | "defensive";
+export type Tactic = "offensive" | "balanced" | "defensive" | "pressing" | "counter";
 export type User = { id: string; email: string; name: string };
+export type MatchEvent = { minute: number; kind: string; text: string; teamId: string; side: string; playerId?: string };
+export type MatchStep = { minute: number; events: MatchEvent[]; done: boolean; result?: MatchResult };
 export type SubstitutionPlan = { minute: number; playerOutId: string; playerInId: string };
 export type MatchPlan = { starterIds: string[]; benchIds: string[]; formation: Formation; captainId: string; substitutions: SubstitutionPlan[] };
 export type AdminControls = {
@@ -43,6 +45,7 @@ export const api = {
   admin: (id: string, patch: Partial<Omit<AdminControls, "membershipCount" | "debt">>) => req<{ career: Career }>(`/saves/${id}/admin`, { method: "PUT", body: JSON.stringify(patch) }),
   loan: (id: string, amount: number) => req<{ career: Career }>(`/saves/${id}/admin/loan`, { method: "POST", body: JSON.stringify({ amount }) }),
   simulate: (id: string) => req<{ career: Career; userMatch: MatchResult | null }>(`/saves/${id}/simulate-round`, { method: "POST" }),
+  simulateMatch: (id: string) => req<{ career: Career; steps: MatchStep[] }>(`/saves/${id}/simulate-match`, { method: "POST" }),
   buy: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/market/buy`, { method: "POST", body: JSON.stringify({ playerId }) }),
   sell: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/market/sell`, { method: "POST", body: JSON.stringify({ playerId }) }),
   renew: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/renew`, { method: "POST", body: JSON.stringify({ playerId }) }),
@@ -61,6 +64,8 @@ export type MatchResult = {
   shots: { home: number; away: number };
   cards: { home: { yellow: number; red: number }; away: { yellow: number; red: number } };
   injuries: string[];
+  injuryDetails?: { playerId: string; games: number }[];
+  fouls?: { home: number; away: number };
   substitutions: { minute: number; teamId: string; playerOutId: string; playerInId: string }[];
 };
 export type Player = {
@@ -74,14 +79,133 @@ export type Club = {
   rep: number; players: Player[];
 };
 export type InboxMessage = { id: string; kind: string; title: string; body: string; read: boolean };
+export type CupFixture = {
+  slot: string;
+  homeId: string;
+  awayId: string;
+  played: boolean;
+  winnerId?: string;
+  homeGoals?: number;
+  awayGoals?: number;
+  penalties?: { home: number; away: number };
+  bye?: boolean;
+};
+
+export type GroupStanding = {
+  clubId: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  gf: number;
+  ga: number;
+  points: number;
+};
+
+export type GroupFixture = {
+  round: number;
+  homeId: string;
+  awayId: string;
+  played: boolean;
+  result?: MatchResult;
+  groupId: string;
+};
+
+export type CompetitionGroup = {
+  id: string;
+  name: string;
+  teams: string[];
+  fixtures: GroupFixture[];
+  standings: GroupStanding[];
+};
+
+export type Competition = {
+  id: string;
+  name: string;
+  type: string;
+  season: number;
+  phase: string;
+  bracket?: CupFixture[][];
+  groups?: CompetitionGroup[];
+  currentRound?: number;
+  champion?: string;
+  runnerUp?: string;
+  prizes?: Record<string, number>;
+  qualified?: string[];
+  eliminated?: string[];
+};
+
+export type StaffRole =
+  | "head_coach"
+  | "assistant_coach"
+  | "fitness_coach"
+  | "gk_coach"
+  | "scout"
+  | "medical_director"
+  | "physio"
+  | "youth_coach_u20"
+  | "youth_coach_u17";
+
+export type StaffSkills = {
+  tactics?: number;
+  development?: number;
+  manManagement?: number;
+  fitness?: number;
+  goalkeeping?: number;
+  scouting?: number;
+  medical?: number;
+  analysis?: number;
+};
+
+export type Staff = {
+  id: string;
+  name: string;
+  nationality: string;
+  role: StaffRole;
+  age: number;
+  skills: StaffSkills;
+  salary: number;
+  contractGames: number;
+  reputation: number;
+  preferredFormation?: Formation;
+  preferredTactic?: Tactic;
+};
+
+export type YouthPlayer = {
+  id: string;
+  name: string;
+  nationality: string;
+  position: Position;
+  preferredPositions: Position[];
+  age: number;
+  skills: PlayerSkills;
+  potential: number;
+  personality: "professional" | "ambitious" | "balanced" | "casual" | "difficult";
+  contractGames: number;
+  salary: number;
+};
+
+export type YouthTeam = {
+  category: "u20" | "u17";
+  players: YouthPlayer[];
+  coachId?: string;
+};
+
 export type Career = {
   clubId: string; division: 1 | 2 | 3; season: number; round: number; tactic: Tactic; formation: Formation; captainId: string; starterIds: string[]; benchIds: string[];
   substitutions: { minute: number; playerOutId: string; playerInId: string }[];
   admin: AdminControls;
   clubs: Club[]; table: { clubId: string; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number }[];
   fixtures: { round: number; homeId: string; awayId: string; played: boolean; result?: MatchResult }[];
-  cup: { slot: string; homeId: string; awayId: string; played: boolean; winnerId?: string; homeGoals?: number; awayGoals?: number; penalties?: { home: number; away: number } }[][];
+  cup: CupFixture[][];
   cupRound: number; cupChampion?: string; cupFinalPlayed: boolean;
+  copaDoBrasil?: Competition;
+  libertadores?: Competition;
+  sulAmericana?: Competition;
+  supercopa?: Competition;
+  recopa?: Competition;
+  estaduais?: Competition[];
+  calendar?: { currentRound: number; fifaWindows: { id: string; name: string; startRound: number; endRound: number }[] };
   finances: number;
   ledger: { round?: number; label: string; amount: number }[];
   market: { playerId: string; clubId: string | null; price: number }[];
@@ -91,4 +215,7 @@ export type Career = {
   lastRoundEvents: MatchResult | null;
   topScorers: { playerId: string; goals: number }[];
   seed: number;
+  staff: Staff[];
+  youthTeams: YouthTeam[];
+  staffHistory: { season: number; role: string; name: string; action: string }[];
 };

@@ -68,7 +68,7 @@ function makeClub([division, name, state], index) {
       morale: 65 + ((index + playerIndex) % 31),
       strength,
       salary: division === 1 ? 24000 + strength * 900 : division === 2 ? 12000 + strength * 500 : 7000 + strength * 350,
-      contractGames: 20 + (playerIndex % 10),
+      contractGames: 30 + ((index * 7 + playerIndex * 11) % 60),
       behavior: 1 + ((index + playerIndex) % 5),
       injuredGames: 0,
       yellows: 0,

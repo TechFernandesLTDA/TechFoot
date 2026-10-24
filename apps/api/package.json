@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "db:push": "prisma db push",
-    "start": "tsx src/server.ts"
+    "start": "tsx src/server.ts",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

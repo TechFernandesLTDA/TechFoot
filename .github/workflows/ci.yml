@@ -21,7 +21,7 @@ jobs:
         run: npx tsc --noEmit -p apps/api/tsconfig.json
       - name: Typecheck web
         run: npx tsc --noEmit -p apps/web/tsconfig.json
-      - name: Engine tests
+      - name: Engine and career tests
         run: npm test
       - name: Build web
         run: npm run build -w @techfoot/web
