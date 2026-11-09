@@ -501,11 +501,12 @@ input[type="range"] { width: 100%; height: 5px; accent-color: var(--gold); curso
 
 @media (max-width: 800px) {
   .app { padding: 0 16px 82px; }
-  .topbar { min-height: 72px; }
+  .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand actions" "club club"; align-items: center; gap: 6px 8px; min-height: 0; padding: 10px 0 8px; overflow: visible; }
+  .brand-lockup { grid-area: brand; }
   .brand-lockup small, .online-dot, .user-name { display: none; }
-  .topbar-club { margin-left: auto; }
-  .topbar-club strong { max-width: 135px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .topbar-actions { gap: 7px; }
+  .topbar-club { grid-area: club; margin-left: 0; min-width: 0; }
+  .topbar-club strong { max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-actions { grid-area: actions; justify-self: end; gap: 7px; }
   .topbar-actions .logout-button { padding-left: 8px; white-space: nowrap; }
   .app-layout { display: block; padding-top: 18px; }
   .sidebar { display: none; }
@@ -542,7 +543,7 @@ input[type="range"] { width: 100%; height: 5px; accent-color: var(--gold); curso
   h2 { font-size: 2.7rem; }
   .panel { padding: 16px; }
   .topbar-club .club-crest { display: none; }
-  .topbar-club strong { max-width: 110px; font-size: 0.9rem; }
+  .topbar-club strong { max-width: 100%; font-size: 0.95rem; }
   .logout-button { font-size: 0.58rem; }
   .metric-card { min-height: 122px; padding: 12px; }
   .metric-card strong { font-size: 1.75rem; }
@@ -588,6 +589,13 @@ input[type="range"] { width: 100%; height: 5px; accent-color: var(--gold); curso
 .intent-list { display: grid; gap: 8px; margin-top: 16px; }
 .intent-row { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
 .intent-row span, .intent-row small { color: var(--paper-dim); font-size: 0.62rem; }
+.season-strip { display: grid; grid-template-columns: 1.4fr 0.8fr; gap: 16px; margin-bottom: 12px; }
+.season-strip strong { display: block; margin-top: 6px; font-size: 0.95rem; }
+.history-list { display: grid; gap: 8px; }
+.history-row { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
+.history-row span { color: var(--paper-dim); font-size: 0.68rem; }
+.readiness-list { margin: 8px 0 0; padding-left: 18px; color: var(--paper-dim); font-size: 0.68rem; }
+.readiness-list li + li { margin-top: 6px; }
 .market-grid .empty-state { grid-column: 1 / -1; }
 .tab-badge { min-width: 16px; padding: 1px 4px; border-radius: 8px; background: var(--red); color: var(--ink); font-size: 0.55rem; }
 .more-sheet { position: fixed; z-index: 20; inset: 0; }
@@ -597,9 +605,8 @@ input[type="range"] { width: 100%; height: 5px; accent-color: var(--gold); curso
 .more-sheet__panel button.is-active { color: var(--gold); }
 
 @media (max-width: 800px) {
-  .support-grid { grid-template-columns: 1fr; }
-  .topbar { gap: 8px; }
-  .topbar-actions { flex: 0 0 auto; gap: 8px; }
+  .support-grid, .season-strip { grid-template-columns: 1fr; }
+  .topbar-actions { gap: 8px; }
   .topbar .icon-button { padding: 0 8px; }
 }
 

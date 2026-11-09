@@ -16,11 +16,17 @@ test("no celular a carreira salva continua acessível", async ({ page }) => {
   await page.getByRole("button", { name: "Flamengo" }).click();
   await page.getByRole("button", { name: "Assumir este clube" }).click();
   await expect(page.getByRole("button", { name: "Simular rodada" })).toBeVisible();
+  await expect(page.getByText("Primeira temporada deste save.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Jogos" }).click();
+  await expect(page.getByRole("heading", { name: "Seus jogos" })).toBeVisible();
 
   await page.getByRole("button", { name: "Mais" }).click();
   await expect(page.getByRole("dialog", { name: "Mais seções" })).toBeVisible();
   await page.getByRole("button", { name: "Apoio" }).click();
   await expect(page.getByLabel("Chave Pix")).toHaveText("futebadosparcas@outlook.com");
+  await expect(page.getByRole("button", { name: "Checkout indisponível" })).toBeDisabled();
+  await expect(page.getByText("nenhuma doação libera recurso")).toBeVisible();
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Sair" }).click();

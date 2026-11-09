@@ -35,7 +35,28 @@ export type Career = {
   news: string[];
   lastRoundEvents: MatchResult | null;
   topScorers: { playerId: string; goals: number }[];
+  history: SeasonRecord[];
+  userMatches: UserMatchSummary[];
   seed: number;
+};
+
+export type SeasonRecord = {
+  season: number;
+  division: 1 | 2 | 3;
+  position: number;
+  points: number;
+  played: number;
+  cupChampionId?: string;
+  prize: number;
+};
+
+export type UserMatchSummary = {
+  season: number;
+  round: number;
+  homeId: string;
+  awayId: string;
+  homeGoals: number;
+  awayGoals: number;
 };
 
 export type AdminPatch = Partial<Omit<AdminControls, "membershipCount" | "debt">>;
@@ -145,6 +166,8 @@ export function normalizeCareer(career: Career): Career {
     career.substitutions ??= [];
   }
   career.freeAgents ??= [];
+  career.history ??= [];
+  career.userMatches ??= [];
   return career;
 }
 
@@ -184,6 +207,8 @@ export function createCareer(clubId: string, season = 2026, seed = Date.now() % 
     news: [],
     lastRoundEvents: null,
     topScorers: [],
+    history: [],
+    userMatches: [],
     seed,
   };
 
@@ -425,6 +450,16 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
   sortTopScorers(career);
   refreshMarket(career);
   career.lastRoundEvents = userMatch;
+  if (userMatch) {
+    career.userMatches = [...(career.userMatches ?? []), {
+      season: career.season,
+      round: career.round,
+      homeId: userMatch.homeId,
+      awayId: userMatch.awayId,
+      homeGoals: userMatch.homeGoals,
+      awayGoals: userMatch.awayGoals,
+    }].slice(-80);
+  }
 
   // Copa intercalada: uma fase por janela
   const cupWindows = [4, 8, 12, 14];
@@ -530,6 +565,16 @@ function endOfSeason(career: Career): void {
   const finalTable = sortByTable(career.table);
   const pos = finalTable.findIndex((r) => r.clubId === career.clubId) + 1;
   const prize = prizeFor(pos);
+  const standing = finalTable.find((row) => row.clubId === career.clubId);
+  career.history = [...(career.history ?? []), {
+    season: career.season,
+    division: career.division,
+    position: pos,
+    points: standing?.points ?? 0,
+    played: standing?.played ?? 0,
+    cupChampionId: career.cupChampion,
+    prize,
+  }].slice(-20);
   myClub.cash += prize;
   career.finances = myClub.cash;
   career.ledger = [{ label: `Premiação (${pos}º lugar)`, amount: prize }, ...career.ledger].slice(0, 40);

@@ -21,6 +21,12 @@ export type PublicSupport = {
   providerConfigured: boolean;
   donationsUnlockFeatures: false;
   notice: string;
+  readiness: {
+    copyKey: true;
+    brCode: boolean;
+    premiumCheckout: "unavailable";
+    missing: string[];
+  };
 };
 
 const MISSING_MERCHANT = "QR Code e BR Code Pix não são gerados porque o nome e a cidade do recebedor não estão configurados. Esses dados não são inventados. Copiar a chave não confirma pagamento e não libera nada no jogo.";
@@ -38,6 +44,11 @@ export function publicSupportStatus(env: SupportEnv = process.env): PublicSuppor
       ? null
       : "Nome ou cidade do recebedor ficaram inválidos depois da normalização do BR Code. Nenhum código foi gerado.";
   }
+  const missing = [
+    ...(brCode ? [] : ["Nome e cidade reais do recebedor, nas variáveis PIX_MERCHANT_NAME e PIX_MERCHANT_CITY"]),
+    "Um provedor de pagamento com confirmação no servidor. O segredo de webhook, sozinho, não é esse provedor",
+    "Nesta versão nenhuma doação libera recurso, mesmo depois de uma verificação",
+  ];
   return {
     pixKey,
     pixKeyType: "email",
@@ -48,6 +59,7 @@ export function publicSupportStatus(env: SupportEnv = process.env): PublicSuppor
     providerConfigured,
     donationsUnlockFeatures: false,
     notice: "Apoio voluntário. Copiar a chave, exibir um código ou registrar uma intenção não confirma Pix e não libera nada no jogo.",
+    readiness: { copyKey: true, brCode: Boolean(brCode), premiumCheckout: "unavailable", missing },
   };
 }
 

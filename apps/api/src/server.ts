@@ -12,6 +12,7 @@ import {
   type Career,
 } from "./career.ts";
 import { publicSupportStatus, verifyPaymentSignature } from "./support.ts";
+import { assertReadyToListen, loadLocalEnv, sessionCookie, startupIssues } from "./config.ts";
 
 export async function buildApp() {
 const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : true });
@@ -98,7 +99,7 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
   const user = await prisma.user.create({
     data: { email: body.email.toLowerCase().trim(), name: body.name.trim(), passwordHash: hashPassword(body.password) },
   });
-  reply.setCookie("tf", signToken(user.id), { httpOnly: true, path: "/", sameSite: "lax" });
+  reply.setCookie("tf", signToken(user.id), sessionCookie());
   return { id: user.id, email: user.email, name: user.name };
 });
 
@@ -107,12 +108,12 @@ app.post("/auth/login", { config: { rateLimit: { max: 20, timeWindow: "1 minute"
   const user = await prisma.user.findUnique({ where: { email: body.email.toLowerCase().trim() } });
   if (!user || !verifyPassword(body.password, user.passwordHash))
     return reply.code(401).send({ error: "Credenciais inválidas" });
-  reply.setCookie("tf", signToken(user.id), { httpOnly: true, path: "/", sameSite: "lax" });
+  reply.setCookie("tf", signToken(user.id), sessionCookie());
   return { id: user.id, email: user.email, name: user.name };
 });
 
 app.post("/auth/logout", async (_req, reply) => {
-  reply.clearCookie("tf", { path: "/" });
+  reply.clearCookie("tf", sessionCookie());
   return { ok: true };
 });
 
@@ -122,12 +123,19 @@ app.get("/me", async (req) => {
   return { id: user.id, email: user.email, name: user.name };
 });
 
-app.get("/health", async () => {
+app.get("/health", async (_req, reply) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    return reply.code(503).send({ ok: false, service: "techfoot-api", db: "down" });
+  }
   const support = publicSupportStatus();
   return {
     ok: true,
     service: "techfoot-api",
-    payments: { providerConfigured: support.providerConfigured, pixBrCode: support.brCodeAvailable },
+    db: "up",
+    payments: { providerConfigured: support.providerConfigured, pixBrCode: support.brCodeAvailable, premiumCheckout: "unavailable" as const },
+    configWarnings: startupIssues().filter((issue) => issue.level === "warning").map((issue) => issue.message),
   };
 });
 
@@ -327,6 +335,8 @@ function isDirectRun(): boolean {
 }
 
 if (isDirectRun()) {
+  loadLocalEnv();
+  assertReadyToListen();
   const app = await buildApp();
   const port = Number(process.env.PORT ?? 3333);
   await app.listen({ port, host: "0.0.0.0" });

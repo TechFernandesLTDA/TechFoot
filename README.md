@@ -17,6 +17,8 @@ Org: [TechFernandesLTDA](https://github.com/TechFernandesLTDA) · MIT
 - **Tática** (ofensivo / equilibrado / defensivo) e **moral** do clube afetando o desempenho
 - **Copa** mata-mola com pênaltis, intercalada na temporada
 - **Fim de temporada**: campeão, prêmios, acesso e rebaixamento, novo calendário
+- **Arquivo da carreira**: cada temporada encerrada guarda divisão, posição, pontos e prêmio no próprio save
+- **Meus jogos**: o calendário abre no recorte do clube; o turno inteiro continua disponível
 - **Economia**: bilheteria, folha salarial, prêmios, compra/venda e renovação de jogadores
 - **Administração**: preço de ingresso, sócios, patrocínio, transmissão, produtos, estádio, manutenção, base, scouting e empréstimos
 - Uma carreira ativa fica vinculada ao clube escolhido; não existe troca de time durante o save
@@ -62,6 +64,8 @@ Web: http://localhost:5173 · API: http://localhost:3333 · saúde: http://local
 
 O loop é: criar conta, assumir um clube, montar o onze, simular a rodada e ler relatório, tabela, caixa e mensagens. Uma carreira ativa fica vinculada ao clube. No celular, o arquivo salvo aparece acima da lista de clubes e o menu Mais alcança copa, mercado, financeiro, tabela, competições, administração, jogo e apoio.
 
+O escritório mostra o objetivo da divisão atual e, depois do fim da temporada, o resultado arquivado. Em Competições, a lista "Temporadas encerradas" começa vazia e passa a guardar até vinte temporadas no JSON do save. Em Jogos, o padrão é "Meus jogos".
+
 A simulação trata vitória, empate e derrota pelo lado do seu clube, inclusive fora de casa. Jogador lesionado ou suspenso fica fora daquela rodada. Venda manda o atleta ao mercado de agentes livres.
 
 ## Apoio e monetização
@@ -80,17 +84,44 @@ O jogo inteiro é gratuito. O encaixe conservador é doação voluntária, sem p
 - O save é o JSON da carreira no SQLite local. Não há analytics, anúncio nem venda de dados.
 - O apoio não pede CPF, a chave Pix de quem doa nem cartão.
 - O service worker não guarda respostas de `/auth`, `/me`, `/saves`, `/support`, `/health`, `/world` ou `/competitions`.
-- Em produção, defina `SESSION_SECRET` longo e `WEB_ORIGIN` restrito. O valor de exemplo não serve para um servidor público.
+- Em produção, defina `SESSION_SECRET` exclusivo (24 caracteres ou mais) e `WEB_ORIGIN` da origem pública. O valor de exemplo faz a API recusar o arranque. O cookie fica `Secure`.
 - As fontes vêm do Google Fonts quando a rede permite. Sem isso, o navegador usa a fonte genérica.
 
-## O que ainda impede publicação
+## Receita local com Docker
 
-- Não há host, domínio, HTTPS nem banco fora deste SQLite.
-- Não há provedor de pagamento real. O webhook é só o gancho; não está ligado a PSP, banco ou loja.
-- BR Code continua desligado até o recebedor informar nome e cidade verdadeiros.
-- Não há ficha de loja (Play, App Store, itch ou similar) nem processo de distribuição.
-- Nomes de clubes são reais e os atletas são fictícios. Revise direitos e calendário antes de qualquer uso comercial.
-- Não rode deploy a partir desta árvore sem revisar segredo, CORS, backup do SQLite e o aviso legal acima.
+`Dockerfile` e `compose.yaml` sobem API e web só em `127.0.0.1`. Isso não foi executado como deploy. A validação esperada é `docker compose config`.
+
+```bash
+docker compose config --quiet
+docker compose up --build
+```
+
+A web fica em http://127.0.0.1:8080 e a API em http://127.0.0.1:3333. O SQLite vai para o volume `techfoot-data`. A receita usa `NODE_ENV=development` e o segredo de exemplo para conseguir abrir no computador. `GET /health` consulta o banco e responde `db: "up"` ou 503.
+
+Para um processo público, defina `NODE_ENV=production`, um `SESSION_SECRET` exclusivo com pelo menos 24 caracteres e `WEB_ORIGIN` com a origem HTTPS. Sem isso a API encerra antes de escutar. O cookie `tf` fica `Secure` em produção, então HTTP puro não mantém a sessão.
+
+## O que já está pronto no código
+
+- Conta, carreira, simulação, arquivo de temporada e calendário do clube
+- Testes do motor, da API e do fluxo no browser
+- `GET /health` com checagem do banco
+- Recusa de segredo de desenvolvimento quando `NODE_ENV=production`
+- Cópia da chave Pix e lista do que ainda falta para um recebimento verificável
+- Webhook que, mesmo com assinatura válida, não libera recurso
+- `Dockerfile` e `compose.yaml` para um arranque local reproduzível
+
+## O que você precisa fazer para ir ao ar e receber apoio
+
+1. Escolher host, domínio e HTTPS. O compose local não substitui isso.
+2. Gerar um `SESSION_SECRET` exclusivo, definir `WEB_ORIGIN` e `NODE_ENV=production`.
+3. Decidir o banco: manter o SQLite com backup do volume, ou migrar para um banco com cópia própria. O arquivo não está numa nuvem pública.
+4. Conferir no banco, fora do jogo, se a chave `futebadosparcas@outlook.com` recebe Pix. O aplicativo não vê o extrato.
+5. Se quiser QR Code, preencher `PIX_MERCHANT_NAME` e `PIX_MERCHANT_CITY` com o nome e a cidade reais do recebedor. Os dois juntos. O jogo não inventa esses campos.
+6. Se um dia quiser pagamento verificado, contratar um provedor real e ligar o webhook. Nesta versão a verificação continua sem liberar recurso.
+7. Revisar o uso comercial dos nomes reais dos clubes antes de distribuir.
+8. Abrir ficha de loja só se a distribuição for por Play, App Store ou similar. Não há ficha nesta árvore.
+
+Não há preço, usuário, receita nem confirmação de Pix inventados. Copiar a chave não é pagamento recebido.
 
 ## Estrutura
 

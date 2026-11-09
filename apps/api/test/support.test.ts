@@ -33,7 +33,9 @@ describe("support routes", () => {
     assert.equal(health.statusCode, 200);
     const healthBody = health.json();
     assert.equal(healthBody.ok, true);
+    assert.equal(healthBody.db, "up");
     assert.equal(healthBody.payments.pixBrCode, false);
+    assert.equal(healthBody.payments.premiumCheckout, "unavailable");
     assert.equal(JSON.stringify(healthBody).includes(PROJECT_PIX_KEY), false);
 
     const support = await app.inject({ method: "GET", url: "/support" });
@@ -44,6 +46,11 @@ describe("support routes", () => {
     assert.equal(body.premiumCheckout, "unavailable");
     assert.equal(body.donationsUnlockFeatures, false);
     assert.equal(body.providerConfigured, false);
+    assert.equal(body.readiness.copyKey, true);
+    assert.equal(body.readiness.brCode, false);
+    assert.equal(body.readiness.premiumCheckout, "unavailable");
+    assert.ok(body.readiness.missing.some((item: string) => item.includes("PIX_MERCHANT_NAME")));
+    assert.ok(body.readiness.missing.some((item: string) => item.includes("nenhuma doação libera recurso")));
   });
 
   it("stores a donation intent as unverified even if the client claims it is paid", async () => {

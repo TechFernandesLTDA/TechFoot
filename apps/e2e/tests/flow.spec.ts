@@ -43,6 +43,7 @@ test("fluxo completo: registrar, criar carreira, simular rodada, ver tabela", as
 
   await page.getByRole("button", { name: "Competições" }).click();
   await expect(page.getByText("Mapa do futebol")).toBeVisible();
+  await expect(page.getByText("Nenhuma temporada arquivada")).toBeVisible();
 
   await page.getByRole("button", { name: "Administração" }).click();
   await expect(page.getByText("Você decide o orçamento.")).toBeVisible();
@@ -50,12 +51,19 @@ test("fluxo completo: registrar, criar carreira, simular rodada, ver tabela", as
 
   await page.getByRole("button", { name: "Escritório" }).click();
   await expect(page.getByText("VOCÊ · MANDANTE").or(page.getByText("VOCÊ · VISITANTE"))).toBeVisible();
+  await expect(page.getByText("Primeira temporada deste save.")).toBeVisible();
   await expect(page.getByText("EM 2 DIAS")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Jogos" }).click();
+  await expect(page.getByRole("heading", { name: "Seus jogos" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Meus jogos" })).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("button", { name: "Apoio" }).click();
   await expect(page.getByRole("heading", { name: "Apoio voluntário." })).toBeVisible();
   await expect(page.getByLabel("Chave Pix")).toHaveText("futebadosparcas@outlook.com");
   await expect(page.getByRole("button", { name: "Checkout indisponível" })).toBeDisabled();
   await expect(page.getByText("não confirma Pix")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Para receber de verdade" })).toBeVisible();
+  await expect(page.getByText("nenhuma doação libera recurso")).toBeVisible();
   await expect(page.getByRole("button", { name: "Pagamento confirmado" })).toHaveCount(0);
 });

@@ -74,6 +74,7 @@ export type SupportInfo = {
   providerConfigured: boolean;
   donationsUnlockFeatures: false;
   notice: string;
+  readiness: { copyKey: true; brCode: boolean; premiumCheckout: "unavailable"; missing: string[] };
 };
 
 export type SupportIntent = {
@@ -126,5 +127,9 @@ export type Career = {
   news: string[];
   lastRoundEvents: MatchResult | null;
   topScorers: { playerId: string; goals: number }[];
+  history: SeasonRecord[];
+  userMatches: UserMatchSummary[];
   seed: number;
 };
+export type SeasonRecord = { season: number; division: 1 | 2 | 3; position: number; points: number; played: number; cupChampionId?: string; prize: number };
+export type UserMatchSummary = { season: number; round: number; homeId: string; awayId: string; homeGoals: number; awayGoals: number };

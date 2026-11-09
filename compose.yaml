@@ -1,0 +1,41 @@
+# Receita local. Não publica a porta fora de 127.0.0.1 e não é um deploy.
+# NODE_ENV fica em development de propósito: com o segredo de exemplo, a API
+# recusa NODE_ENV=production. Para um servidor real, troque o segredo, a origem
+# e o modo antes de subir.
+services:
+  api:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3333:3333"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: file:/data/techfoot.db
+      SESSION_SECRET: ${SESSION_SECRET:-techfoot-dev-secret-change-me}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://127.0.0.1:8080}
+      PORT: "3333"
+      PIX_KEY: ${PIX_KEY:-futebadosparcas@outlook.com}
+    volumes:
+      - techfoot-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3333/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  techfoot-data:

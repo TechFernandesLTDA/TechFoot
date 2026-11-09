@@ -54,4 +54,27 @@ describe("career rules", () => {
     for (const id of kept) assert.equal(next.starterIds.includes(id), true);
     assert.equal(next.clubs.find((club) => club.id === career.clubId)!.players.find((item) => item.id === injuredId)!.injuredGames, 0);
   });
+
+  it("archives a finished Série C season and keeps the manager's matches", () => {
+    const world = loadWorld();
+    const club = world.clubs.find((item) => item.division === 3);
+    assert.ok(club);
+    let career = createCareer(club!.id, 2026, 11);
+    assert.equal(career.division, 3);
+    assert.equal(career.history.length, 0);
+    let guard = 0;
+    while (career.season === 2026 && guard < 25) {
+      career = simulateRound(career).career;
+      guard += 1;
+    }
+    assert.equal(guard, 19);
+    assert.equal(career.season, 2027);
+    assert.equal(career.round, 1);
+    assert.equal(career.history.length, 1);
+    assert.equal(career.history[0].season, 2026);
+    assert.equal(career.history[0].division, 3);
+    assert.ok(career.history[0].position >= 1 && career.history[0].position <= 20);
+    assert.equal(career.userMatches.length, 19);
+    assert.ok(career.userMatches.every((match) => match.season === 2026));
+  });
 });
