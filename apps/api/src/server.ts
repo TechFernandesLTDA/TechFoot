@@ -12,11 +12,37 @@ import {
   type Career,
 } from "./career.ts";
 import { publicSupportStatus, verifyPaymentSignature } from "./support.ts";
-import { assertReadyToListen, loadLocalEnv, sessionCookie, startupIssues } from "./config.ts";
+import { assertReadyToListen, loadLocalEnv, sessionCookie, startupIssues, trustProxyOption } from "./config.ts";
+
+const newPasswordSchema = z.string().min(8, "precisa ter entre 8 e 128 caracteres").max(128, "precisa ter entre 8 e 128 caracteres");
 
 export async function buildApp() {
-const trustProxy = process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production";
+const trustProxy = trustProxyOption();
 const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : true, trustProxy });
+const loginFailures = new Map<string, { fails: number; until: number }>();
+const LOGIN_FAILS_BEFORE_BACKOFF = 5;
+function loginBackoffMs(fails: number): number {
+  const over = Math.max(0, fails - LOGIN_FAILS_BEFORE_BACKOFF);
+  return Math.min(15 * 60_000, 60_000 * 2 ** over);
+}
+function assertLoginAllowed(email: string): void {
+  const row = loginFailures.get(email);
+  if (!row || row.until <= Date.now()) return;
+  const seconds = Math.max(1, Math.ceil((row.until - Date.now()) / 1000));
+  throw httpError(`Muitas tentativas para este e-mail. Tente de novo em ${seconds}s.`, 429);
+}
+function recordLoginFailure(email: string): void {
+  const row = loginFailures.get(email) ?? { fails: 0, until: 0 };
+  row.fails += 1;
+  if (row.fails >= LOGIN_FAILS_BEFORE_BACKOFF) row.until = Date.now() + loginBackoffMs(row.fails);
+  loginFailures.set(email, row);
+}
+function clearLoginFailure(email: string): void {
+  loginFailures.delete(email);
+}
+function clearSession(reply: { clearCookie: (name: string, options: { path: string; sameSite: "lax"; secure: boolean }) => void }): void {
+  reply.clearCookie("tf", { path: "/", sameSite: "lax", secure: process.env.NODE_ENV === "production" });
+}
 await app.register(cors, { origin: process.env.WEB_ORIGIN ?? true, credentials: true });
 await app.register(cookie);
 await app.register(rateLimit, { global: false });
@@ -38,10 +64,17 @@ app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, 
 
 const registerSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
-  name: z.string().min(1),
+  password: newPasswordSchema,
+  name: z.string().min(1).max(80),
+  acceptTerms: z.boolean().refine((value) => value, { message: "é preciso aceitar os termos" }),
+  age18: z.boolean().refine((value) => value, { message: "é preciso declarar 18 anos ou mais" }),
 });
-const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
+const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1).max(128) });
+const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  nextPassword: newPasswordSchema,
+});
+const deleteAccountSchema = z.object({ password: z.string().min(1).max(128) });
 const tacticSchema = z.object({ tactic: z.enum(["offensive", "balanced", "defensive"]) });
 const playerIdSchema = z.object({ playerId: z.string().min(1) });
 const matchPlanSchema = z.object({
@@ -72,10 +105,12 @@ const webhookSchema = z.object({ intentId: z.string().min(1) });
 
 type AuthedReq = { cookies: Record<string, string | undefined> };
 
-function userIdFrom(req: AuthedReq): string {
-  const id = readToken(req.cookies.tf);
-  if (!id) throw Object.assign(new Error("Não autenticado"), { statusCode: 401 });
-  return id;
+async function userIdFrom(req: AuthedReq): Promise<string> {
+  const session = readToken(req.cookies.tf);
+  if (!session) throw httpError("Não autenticado", 401);
+  const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { sessionVersion: true } });
+  if (!user || user.sessionVersion !== session.sv) throw httpError("Não autenticado", 401);
+  return session.userId;
 }
 
 app.setErrorHandler((err: FastifyError, req, reply) => {
@@ -100,36 +135,101 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
   const user = await prisma.user.create({
     data: { email: body.email.toLowerCase().trim(), name: body.name.trim(), passwordHash: hashPassword(body.password) },
   });
-  reply.setCookie("tf", signToken(user.id), sessionCookie());
+  reply.setCookie("tf", signToken(user.id, user.sessionVersion), sessionCookie());
   return { id: user.id, email: user.email, name: user.name };
 });
 
 app.post("/auth/login", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req, reply) => {
   const body = validate(loginSchema, req.body);
-  const user = await prisma.user.findUnique({ where: { email: body.email.toLowerCase().trim() } });
-  if (!user || !verifyPassword(body.password, user.passwordHash))
+  const email = body.email.toLowerCase().trim();
+  assertLoginAllowed(email);
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !verifyPassword(body.password, user.passwordHash)) {
+    recordLoginFailure(email);
     return reply.code(401).send({ error: "Credenciais inválidas" });
-  reply.setCookie("tf", signToken(user.id), sessionCookie());
+  }
+  clearLoginFailure(email);
+  reply.setCookie("tf", signToken(user.id, user.sessionVersion), sessionCookie());
   return { id: user.id, email: user.email, name: user.name };
 });
 
-app.post("/auth/logout", async (_req, reply) => {
-  reply.clearCookie("tf", sessionCookie());
+app.post("/auth/logout", async (req, reply) => {
+  const session = readToken(req.cookies.tf);
+  if (session) {
+    await prisma.user.updateMany({
+      where: { id: session.userId, sessionVersion: session.sv },
+      data: { sessionVersion: { increment: 1 } },
+    });
+  }
+  clearSession(reply);
   return { ok: true };
 });
 
 app.get("/me", async (req) => {
-  const user = await prisma.user.findUnique({ where: { id: userIdFrom(req) } });
+  const user = await prisma.user.findUnique({ where: { id: await userIdFrom(req) } });
   if (!user) throw httpError("Não autenticado", 401);
   return { id: user.id, email: user.email, name: user.name };
 });
 
-app.get("/health", async (_req, reply) => {
+app.get("/me/export", async (req) => {
+  const userId = await userIdFrom(req);
+  const user = await prisma.user.findUnique({ where: { id: userId }, include: { saves: true, supportIntents: true } });
+  if (!user) throw httpError("Não autenticado", 401);
+  return {
+    exportedAt: new Date().toISOString(),
+    user: { id: user.id, email: user.email, name: user.name, phone: user.phone, createdAt: user.createdAt.toISOString() },
+    saves: user.saves.map((save) => ({
+      id: save.id,
+      name: save.name,
+      active: save.active,
+      createdAt: save.createdAt.toISOString(),
+      updatedAt: save.updatedAt.toISOString(),
+      career: careerPayload(save.payload),
+    })),
+    supportIntents: user.supportIntents.map(serializeIntent),
+  };
+});
+
+app.post("/me/password", async (req, reply) => {
+  const userId = await userIdFrom(req);
+  const body = validate(passwordChangeSchema, req.body);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !verifyPassword(body.currentPassword, user.passwordHash)) return reply.code(401).send({ error: "Senha atual incorreta" });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: hashPassword(body.nextPassword), sessionVersion: { increment: 1 } },
+  });
+  clearSession(reply);
+  return { ok: true };
+});
+
+app.delete("/me", async (req, reply) => {
+  const userId = await userIdFrom(req);
+  const body = validate(deleteAccountSchema, req.body);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !verifyPassword(body.password, user.passwordHash)) return reply.code(401).send({ error: "Senha incorreta" });
+  await prisma.user.delete({ where: { id: userId } });
+  clearSession(reply);
+  return { ok: true };
+});
+
+async function databaseUp(): Promise<boolean> {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    return true;
   } catch {
-    return reply.code(503).send({ ok: false, service: "techfoot-api", db: "down" });
+    return false;
   }
+}
+
+app.get("/health", async (_req, reply) => {
+  if (!(await databaseUp())) return reply.code(503).send({ ok: false, db: "down" });
+  return { ok: true, db: "up" };
+});
+
+app.get("/health/detail", async (_req, reply) => {
+  if (process.env.NODE_ENV === "production") return reply.code(404).send({ error: "Não encontrado" });
+  if (!(await databaseUp())) return reply.code(503).send({ ok: false, db: "down" });
   const support = publicSupportStatus();
   return {
     ok: true,
@@ -143,7 +243,7 @@ app.get("/health", async (_req, reply) => {
 app.get("/support", async () => publicSupportStatus());
 
 app.get("/support/intents", async (req) => {
-  const intents = await prisma.supportIntent.findMany({ where: { userId: userIdFrom(req) }, orderBy: { createdAt: "desc" } });
+  const intents = await prisma.supportIntent.findMany({ where: { userId: await userIdFrom(req) }, orderBy: { createdAt: "desc" } });
   return { intents: intents.map(serializeIntent), confirmed: false, unlocked: false };
 });
 
@@ -151,7 +251,7 @@ app.post("/support/intents", { config: { rateLimit: { max: 10, timeWindow: "1 mi
   const body = validate(supportIntentSchema, req.body ?? {});
   const created = await prisma.supportIntent.create({
     data: {
-      userId: userIdFrom(req),
+      userId: await userIdFrom(req),
       amountCents: body.amountCents ?? null,
       note: body.note?.trim() ? body.note.trim() : null,
       status: "unverified",
@@ -180,6 +280,14 @@ app.post("/support/webhooks/payment", async (req, reply) => {
     message: "O provedor confirmou esta intenção. Nenhum recurso do jogo foi liberado.",
   };
 });
+
+function careerPayload(payload: string): unknown {
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
 
 function serializeIntent(intent: { id: string; amountCents: number | null; note: string | null; status: string; createdAt: Date }) {
   return {
@@ -225,12 +333,12 @@ app.get("/competitions", async () => {
 });
 
 app.get("/saves", async (req) => {
-  const saves = await prisma.save.findMany({ where: { userId: userIdFrom(req) }, orderBy: { updatedAt: "desc" } });
+  const saves = await prisma.save.findMany({ where: { userId: await userIdFrom(req) }, orderBy: { updatedAt: "desc" } });
   return saves.map((s) => ({ id: s.id, name: s.name, updatedAt: s.updatedAt }));
 });
 
 app.post("/saves", async (req, reply) => {
-  const userId = userIdFrom(req);
+  const userId = await userIdFrom(req);
   const body = validate(saveSchema, req.body);
   const activeSave = await prisma.save.findFirst({ where: { userId, active: true }, select: { id: true } });
   if (activeSave) return reply.code(409).send({ error: "Sua carreira já está vinculada a um clube" });
@@ -243,7 +351,7 @@ app.post("/saves", async (req, reply) => {
 
 async function loadSave(req: AuthedReq & { params: { id: string } }) {
   const { id } = req.params;
-  const save = await prisma.save.findFirst({ where: { id, userId: userIdFrom(req) } });
+  const save = await prisma.save.findFirst({ where: { id, userId: await userIdFrom(req) } });
   if (!save) throw httpError("Save não encontrado", 404);
   return { save, career: normalizeCareer(JSON.parse(save.payload) as Career) };
 }
@@ -314,6 +422,13 @@ app.post("/saves/:id/renew", async (req) => {
   const { career: updated } = renewContract(career, playerId);
   await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(updated) } });
   return { career: updated };
+});
+
+app.post("/saves/:id/inbox/read-all", async (req) => {
+  const { save, career } = await loadSave(req as never);
+  for (const message of career.inbox) message.read = true;
+  await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(career) } });
+  return { inbox: career.inbox };
 });
 
 app.post("/saves/:id/inbox/:msgId/read", async (req, reply) => {

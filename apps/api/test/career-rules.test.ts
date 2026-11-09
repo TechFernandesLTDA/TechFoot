@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { outcomeForClub } from "@techfoot/engine";
-import { buyPlayer, createCareer, loadWorld, sellPlayer, simulateRound } from "../src/career.ts";
+import { buyPlayer, createCareer, loadWorld, MAX_CLUB_DEBT, sellPlayer, simulateRound, takeLoan } from "../src/career.ts";
 
 describe("career rules", () => {
   it("sells a player into the free-agent pool and allows buying them back", () => {
@@ -76,5 +76,17 @@ describe("career rules", () => {
     assert.ok(career.history[0].position >= 1 && career.history[0].position <= 20);
     assert.equal(career.userMatches.length, 19);
     assert.ok(career.userMatches.every((match) => match.season === 2026));
+  });
+
+  it("caps debt and keeps routine round mail to one message per kind", () => {
+    const world = loadWorld();
+    const career = createCareer(world.clubs[0].id, 2026, 3);
+    const first = takeLoan(career, 10_000_000);
+    const second = takeLoan(first, 10_000_000);
+    assert.equal(second.admin.debt, MAX_CLUB_DEBT);
+    assert.throws(() => takeLoan(second, 100_000), /Limite de dívida/);
+    const { career: next } = simulateRound(createCareer(world.clubs[0].id, 2026, 5));
+    assert.ok(next.inbox.filter((message) => message.kind === "market").length <= 1);
+    assert.ok(next.inbox.filter((message) => message.kind === "evo").length <= 1);
   });
 });

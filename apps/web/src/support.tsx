@@ -156,8 +156,7 @@ export function SupportPanel({ lang, authed, offlineFallback = false, onBack }: 
           <h3>{text.brTitle}</h3>
           {info?.brCode ? <pre className="br-code">{info.brCode}</pre> : <p>{info?.brCodeUnavailableReason ?? "QR Code e BR Code Pix não são gerados sem nome e cidade reais do recebedor."}</p>}
           <p className="panel-note">{text.privacy}</p>
-          <h3>Para receber de verdade</h3>
-          <ul className="readiness-list">{(info?.readiness.missing ?? ["Nome e cidade reais do recebedor", "Provedor com confirmação no servidor", "Nenhuma doação libera recurso nesta versão"]).map((item) => <li key={item}>{item}</li>)}</ul>
+          {info?.readiness.missing.length ? <><h3>Para receber de verdade</h3><ul className="readiness-list">{info.readiness.missing.map((item) => <li key={item}>{item}</li>)}</ul></> : null}
         </article>
         <article className="panel">
           <div className="eyebrow">PREMIUM</div>

@@ -45,9 +45,13 @@ export const api = {
   me: () => req<User>("/me"),
   login: (email: string, password: string) =>
     req<User>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  register: (name: string, email: string, password: string) =>
-    req<User>("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) }),
+  register: (name: string, email: string, password: string, acceptTerms: boolean, age18: boolean) =>
+    req<User>("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, acceptTerms, age18 }) }),
   logout: () => req("/auth/logout", { method: "POST" }),
+  exportData: () => req<unknown>("/me/export"),
+  changePassword: (currentPassword: string, nextPassword: string) =>
+    req("/me/password", { method: "POST", body: JSON.stringify({ currentPassword, nextPassword }) }),
+  deleteAccount: (password: string) => req("/me", { method: "DELETE", body: JSON.stringify({ password }) }),
   world: () => req<{ name: string; stats: { clubs: number; divisions: number; players: number; stateCompetitions: number }; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[]; clubs: { id: string; name: string; city: string; state: string; colors: string[]; division: number }[] }>("/world"),
   saves: () => req<{ id: string; name: string }[]>("/saves"),
   createSave: (clubId: string) => req<{ id: string; name: string; career: Career }>("/saves", { method: "POST", body: JSON.stringify({ clubId }) }),
@@ -61,6 +65,7 @@ export const api = {
   sell: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/market/sell`, { method: "POST", body: JSON.stringify({ playerId }) }),
   renew: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/renew`, { method: "POST", body: JSON.stringify({ playerId }) }),
   markRead: (id: string, msgId: string) => req<{ inbox: InboxMessage[] }>(`/saves/${id}/inbox/${msgId}/read`, { method: "POST" }),
+  markAllRead: (id: string) => req<{ inbox: InboxMessage[] }>(`/saves/${id}/inbox/read-all`, { method: "POST" }),
   support: () => req<SupportInfo>("/support"),
   supportIntents: () => req<{ intents: SupportIntent[]; confirmed: false; unlocked: false }>("/support/intents"),
   createSupportIntent: (amountCents?: number, note?: string) => req<{ intent: SupportIntent; confirmed: false; unlocked: false }>("/support/intents", { method: "POST", body: JSON.stringify({ amountCents, note }) }),

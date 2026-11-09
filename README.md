@@ -80,12 +80,17 @@ O jogo inteiro é gratuito. O encaixe conservador é doação voluntária, sem p
 
 ## Privacidade e segurança
 
-- A conta guarda nome, e-mail e senha com scrypt. A sessão é um cookie `tf` httpOnly por 7 dias.
+- A conta guarda nome, e-mail e senha com scrypt. Senha nova: 8 a 128 caracteres. Quem já tinha senha mais curta continua conseguindo entrar.
+- O cadastro pede aceite dos termos e declaração de 18 anos ou mais. As páginas são `/privacidade` e `/termos`.
+- A sessão é um cookie `tf` httpOnly com `Max-Age` de 7 dias, o mesmo prazo do token. Logout e troca de senha aumentam `sessionVersion` e invalidam o token antigo.
+- Dá para exportar um JSON em `GET /me/export` e apagar a conta com `DELETE /me`, confirmando a senha. Saves e intenções de apoio saem junto.
 - O save é o JSON da carreira no SQLite local. Não há analytics, anúncio nem venda de dados.
 - O apoio não pede CPF, a chave Pix de quem doa nem cartão.
-- O service worker não guarda respostas de `/api`. O navegador chama a API por essa origem, e o nginx tira o prefixo.
+- O service worker não guarda respostas de `/api`. O registro dele está em `/register-sw.js`, para a CSP não depender de script inline. O navegador chama a API por essa origem, e o nginx tira o prefixo.
 - Em produção, defina `SESSION_SECRET` exclusivo (24 caracteres ou mais) e `WEB_ORIGIN` da origem pública. O valor de exemplo faz a API recusar o arranque. O cookie fica `Secure`.
-- As fontes vêm do Google Fonts quando a rede permite. Sem isso, o navegador usa a fonte genérica.
+- `TRUST_PROXY=true` confia em dois saltos de rede privada (nginx e Traefik). Um `X-Forwarded-For` inventado à esquerda não troca o limite de taxa.
+- As fontes são as do sistema. A CSP é `default-src 'self'` e não chama o Google Fonts.
+- A política e os termos citam R L Fernandes LTDA / TECHFERNANDES. O e-mail `futebadosparcas@outlook.com` está marcado como contato a confirmar. CNPJ e endereço ficam em branco até o Renan preencher.
 
 ## Docker
 
@@ -96,7 +101,7 @@ docker compose config --quiet
 docker compose -f deploy/compose.prod.yaml config --quiet
 ```
 
-`GET /health` consulta o banco e responde `db: "up"` ou 503. Em produção o cookie `tf` é `Secure` e o Fastify confia em `X-Forwarded-Proto`. O segredo de exemplo não sobe.
+`GET /health` público responde só `{ok, db}`. O detalhe de pagamento fica em `GET /health/detail` e some em produção. O cookie `tf` é `Secure` atrás do proxy, e o Fastify só aceita `X-Forwarded-Proto` vindo de um salto privado. O segredo de exemplo não sobe.
 
 ## O que já está pronto no código
 

@@ -70,6 +70,8 @@ function parseWorldFile(raw: string): WorldFile {
   return JSON.parse(raw) as WorldFile;
 }
 
+export const MAX_CLUB_DEBT = 20_000_000;
+
 export function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
@@ -398,13 +400,12 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
       career.starterIds,
       ...userMatch.substitutions.filter((change) => change.teamId === myClub.id).map((change) => change.playerInId),
     ]);
+    const evolved: string[] = [];
     for (const p of myClub.players) {
       const played = playedIds.has(p.id);
       if (played) {
         const d = evolvePlayer(p, resultFor, avg, rng);
-        if (d && d.note === "evoluiu") {
-          newMessage(career, `ev-${p.id}`, "evo", "Evolução de força", `${p.name} evoluiu para ${p.strength}.`);
-        }
+        if (d && d.note === "evoluiu") evolved.push(`${p.name} (${p.strength})`);
         p.xp = Math.min(100, p.xp + (resultFor === "win" ? 4 : resultFor === "draw" ? 2 : 1));
         p.fitness = Math.max(0, p.fitness - (p.age > 30 ? 5 : 3));
         p.morale = Math.max(0, Math.min(100, p.morale + (resultFor === "win" ? 3 : resultFor === "loss" ? -3 : 1)));
@@ -413,6 +414,11 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
       }
       p.contractGames -= 1;
       p.matches += (played ? 1 : 0);
+    }
+    if (evolved.length) {
+      const shown = evolved.slice(0, 6).join(", ");
+      const rest = evolved.length > 6 ? ` e mais ${evolved.length - 6}` : "";
+      newMessage(career, `ev-${career.season}-${career.round}`, "evo", "Evolução da rodada", `${shown}${rest}.`);
     }
   }
 
@@ -434,15 +440,18 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
     newMessage(career, `rel-${career.round}`, "contract", "Contratos encerrados", `${toRelease.length} jogador(es) deixaram os clubes e estão livres no mercado.`);
   }
 
-  // Mercado IA: alguns clubes oferecem reforços
+  const offers: string[] = [];
   for (const club of clubs) {
     if (club.id === career.clubId) continue;
     if (roundRng() < 0.15) {
       const p = club.players[Math.floor(roundRng() * club.players.length)];
-      if (p) {
-        newMessage(career, `mk-${club.id}-${career.round}`, "market", `${club.name} oferece reforço`, `${p.name} (${p.strength}) está disponível por ${(playerValue(p) / 1e6).toFixed(1)}M.`);
-      }
+      if (p) offers.push(`${p.name} do ${club.name} por ${(playerValue(p) / 1e6).toFixed(1)}M`);
     }
+  }
+  if (offers.length) {
+    const shown = offers.slice(0, 4).join("; ");
+    const rest = offers.length > 4 ? `; e mais ${offers.length - 4}` : "";
+    newMessage(career, `mk-${career.season}-${career.round}`, "market", "Ofertas da rodada", `${shown}${rest}.`);
   }
 
   career.fixtures = fixtures;
@@ -719,6 +728,9 @@ export function updateAdmin(career: Career, patch: AdminPatch): Career {
 export function takeLoan(career: Career, amount: number): Career {
   const value = Math.round(amount);
   if (!Number.isFinite(value) || value < 100_000 || value > 10_000_000) throw httpError("Empréstimo deve estar entre R$ 100 mil e R$ 10 milhões", 400);
+  const room = MAX_CLUB_DEBT - career.admin.debt;
+  if (room < 100_000) throw httpError("Limite de dívida de R$ 20 milhões atingido", 400);
+  if (value > room) throw httpError(`A dívida cabe mais R$ ${(room / 1e6).toFixed(1)}M. O limite é R$ 20 milhões.`, 400);
   const myClub = clubMap(career.clubs).get(career.clubId)!;
   myClub.cash += value;
   career.admin.debt += value;

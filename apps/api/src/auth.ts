@@ -1,6 +1,11 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { SESSION_MAX_AGE_MS } from "./config.ts";
 
-const SECRET = process.env.SESSION_SECRET ?? "techfoot-dev-secret-change-me";
+function sessionSecret(): string {
+  return process.env.SESSION_SECRET ?? "techfoot-dev-secret-change-me";
+}
+
+export type SessionToken = { userId: string; sv: number };
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
@@ -21,24 +26,26 @@ export function verifyPassword(password: string, stored: string): boolean {
   }
 }
 
-export function signToken(userId: string): string {
-  const payload = Buffer.from(JSON.stringify({ userId, exp: Date.now() + 7 * 86400000 })).toString("base64url");
-  const sig = createHmac("sha256", SECRET).update(payload).digest("base64url");
+export function signToken(userId: string, sessionVersion = 0): string {
+  const payload = Buffer.from(JSON.stringify({ userId, sv: sessionVersion, exp: Date.now() + SESSION_MAX_AGE_MS })).toString("base64url");
+  const sig = createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 
-export function readToken(token: string | undefined): string | null {
+export function readToken(token: string | undefined): SessionToken | null {
   try {
     if (!token) return null;
     const [payload, sig] = token.split(".");
     if (!payload || !sig) return null;
-    const expected = createHmac("sha256", SECRET).update(payload).digest("base64url");
+    const expected = createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
     const a = Buffer.from(sig);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-    const data = JSON.parse(Buffer.from(payload, "base64url").toString()) as { userId: string; exp: number };
-    if (!data.userId || data.exp < Date.now()) return null;
-    return data.userId;
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString()) as { userId?: string; sv?: number; exp?: number };
+    if (!data.userId || !data.exp || data.exp < Date.now()) return null;
+    const sv = data.sv === undefined ? 0 : data.sv;
+    if (!Number.isInteger(sv) || sv < 0) return null;
+    return { userId: data.userId, sv };
   } catch {
     return null;
   }

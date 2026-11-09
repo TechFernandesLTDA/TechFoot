@@ -32,11 +32,15 @@ describe("support routes", () => {
     const health = await app.inject({ method: "GET", url: "/health" });
     assert.equal(health.statusCode, 200);
     const healthBody = health.json();
+    assert.deepEqual(Object.keys(healthBody).sort(), ["db", "ok"]);
     assert.equal(healthBody.ok, true);
     assert.equal(healthBody.db, "up");
-    assert.equal(healthBody.payments.pixBrCode, false);
-    assert.equal(healthBody.payments.premiumCheckout, "unavailable");
     assert.equal(JSON.stringify(healthBody).includes(PROJECT_PIX_KEY), false);
+    const detail = await app.inject({ method: "GET", url: "/health/detail" });
+    assert.equal(detail.statusCode, 200);
+    assert.equal(detail.json().payments.pixBrCode, false);
+    assert.equal(detail.json().payments.premiumCheckout, "unavailable");
+    assert.equal(JSON.stringify(detail.json()).includes(PROJECT_PIX_KEY), false);
     await enableSqliteWal();
     const journal = await prisma.$queryRawUnsafe<Array<{ journal_mode: string }>>("PRAGMA journal_mode");
     assert.equal(journal[0]?.journal_mode, "wal");
@@ -58,7 +62,7 @@ describe("support routes", () => {
 
   it("stores a donation intent as unverified even if the client claims it is paid", async () => {
     const email = `support-${Date.now()}@test.co`;
-    const registered = await app.inject({ method: "POST", url: "/auth/register", payload: { name: "Apoio", email, password: "secret1" } });
+    const registered = await app.inject({ method: "POST", url: "/auth/register", payload: { name: "Apoio", email, password: "secret12", acceptTerms: true, age18: true } });
     assert.equal(registered.statusCode, 200);
     const cookie = cookieFrom(registered.headers["set-cookie"]);
     const created = await app.inject({
@@ -82,7 +86,7 @@ describe("support routes", () => {
   it("refuses to verify a payment until a server webhook secret exists, then still unlocks nothing", async () => {
     delete process.env.PAYMENT_WEBHOOK_SECRET;
     const email = `hook-${Date.now()}@test.co`;
-    const registered = await app.inject({ method: "POST", url: "/auth/register", payload: { name: "Hook", email, password: "secret1" } });
+    const registered = await app.inject({ method: "POST", url: "/auth/register", payload: { name: "Hook", email, password: "secret12", acceptTerms: true, age18: true } });
     const cookie = cookieFrom(registered.headers["set-cookie"]);
     const created = await app.inject({
       method: "POST",

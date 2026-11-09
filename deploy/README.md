@@ -13,14 +13,14 @@ Arquivos:
 | `session_secret.example` | Mesmo placeholder, se o segredo for um Docker secret |
 | `backup-sqlite.sh` | `sqlite3 .backup` para o restic achar um arquivo consistente |
 
-Tags desta leva: `tf-techfoot-api:20261109-v1` e `tf-techfoot-web:20261109-v1`. A próxima leva troca a data e o sufixo (`v2`, `v3`) nos dois lugares: o `image:` do compose e o `docker build`. Não reutilize a tag de uma imagem que já rodou.
+Tags desta leva: `tf-techfoot-api:20261109-v2` e `tf-techfoot-web:20261109-v2`. A próxima leva troca a data e o sufixo nos dois lugares: o `image:` do compose e o `docker build`. Não reutilize a tag de uma imagem que já rodou.
 
 ## O que a imagem assume
 
 - Host OCI A1.Flex, `linux/arm64`. As bases pinadas `node:22.23.4-slim` e `nginxinc/nginx-unprivileged:1.27.4-alpine` publicam manifesto arm64. O Prisma pede o engine `linux-arm64-openssl-3.0.x` (OpenSSL 3 do Debian slim).
 - A API roda com `node --experimental-strip-types`. O `npm ci --omit=dev` da imagem final não leva Vite, TypeScript, tsx nem Playwright. O CLI do Prisma fica, porque o arranque executa `prisma db push` no SQLite vazio.
 - Os dois containers usam `user: "10001:10001"`. A imagem da API cria esse uid/gid. A imagem web parte do nginx-unprivileged (o usuário padrão dela é `nginx`, uid 101) e recria o mesmo uid 10001, com o cache, o log e o HTML nesse dono, para o nginx conseguir escrever temporários sem ser root.
-- `NODE_ENV=production`, `WEB_ORIGIN=https://techfoot.techfernandes.com.br`, `TRUST_PROXY=true`. O cookie `tf` sai `Secure`. Sem o proxy confiável, o Fastify não trata `X-Forwarded-Proto` do Traefik.
+- `NODE_ENV=production`, `WEB_ORIGIN=https://techfoot.techfernandes.com.br`, `TRUST_PROXY=true`. Esse `true` não abre mão do `X-Forwarded-For` inteiro: a API confia só em dois saltos privados (o nginx e, atrás dele, o Traefik). O cookie `tf` sai `Secure` e com `Max-Age` de 7 dias. Sem o salto privado, o Fastify não trata `X-Forwarded-Proto`.
 - O navegador fala só com a origem do site. O nginx encaminha `/api/...` para a API e remove o prefixo. A API continua com `/health`, `/auth`, `/saves` e o resto.
 - Apoio Pix continua sendo copiar a chave `futebadosparcas@outlook.com`. Sem nome e cidade reais não há BR Code. Checkout continua indisponível. Webhook verificado não libera recurso.
 
@@ -30,16 +30,16 @@ No servidor (já é arm64) ou numa máquina com buildx e QEMU:
 
 ```bash
 docker buildx build --platform linux/arm64 \
-  -t tf-techfoot-api:20261109-v1 --target api --load .
+  -t tf-techfoot-api:20261109-v2 --target api --load .
 docker buildx build --platform linux/arm64 \
-  -t tf-techfoot-web:20261109-v1 --target web --load .
+  -t tf-techfoot-web:20261109-v2 --target web --load .
 ```
 
 Confira a arquitetura antes de subir:
 
 ```bash
-docker image inspect tf-techfoot-api:20261109-v1 --format '{{.Architecture}}'
-docker image inspect tf-techfoot-web:20261109-v1 --format '{{.Architecture}}'
+docker image inspect tf-techfoot-api:20261109-v2 --format '{{.Architecture}}'
+docker image inspect tf-techfoot-web:20261109-v2 --format '{{.Architecture}}'
 ```
 
 Os dois precisam responder `arm64`. Guarde a tag anterior no disco até o smoke da nova passar.
@@ -74,14 +74,32 @@ Se um dia for preciso repor o env, copie `deploy/techfoot.env.example`, troque o
 
 O DNS de `techfoot.techfernandes.com.br` já aponta para este servidor. A rede `tf-edge` já existe por causa do Traefik. Ela precisa ser attachable para um container Compose entrar numa rede overlay. Não crie outra rede com o mesmo nome e não publique porta.
 
+O compose que o servidor usa está em `/srv/techfernandes/techfoot/compose.prod.yaml`. O código de cada leva é baixado à parte; o arquivo em `/srv` não acompanha o git sozinho. Copie o compose desta leva para lá antes de subir.
+
 ```bash
 sudo docker network inspect tf-edge --format '{{.Name}} {{.Driver}} {{.Attachable}}'
-cd /caminho/do/checkout
-sudo docker compose -f deploy/compose.prod.yaml up -d
-sudo docker compose -f deploy/compose.prod.yaml ps
+sudo cp deploy/compose.prod.yaml /srv/techfernandes/techfoot/compose.prod.yaml
+sudo docker compose -f /srv/techfernandes/techfoot/compose.prod.yaml up -d
+sudo docker compose -f /srv/techfernandes/techfoot/compose.prod.yaml ps
 ```
 
 O arquivo da raiz `compose.yaml` é a receita local com porta em `127.0.0.1`. Não use esse arquivo no servidor.
+
+## Leva 20261109-v2
+
+Faça o backup do SQLite antes. No arranque, `prisma db push` acrescenta `sessionVersion INTEGER NOT NULL DEFAULT 0` na tabela `User`. As linhas que já existem ficam em 0. Não rode `prisma migrate deploy` neste banco: ele nasceu com `db push` e não tem baseline de `_prisma_migrations`. O SQL em `apps/api/prisma/migrations/20261109120000_session_version/migration.sql` documenta o mesmo `ALTER`.
+
+Tokens antigos, sem o campo `sv`, contam como versão 0 e seguem válidos até um logout ou uma troca de senha. Essas duas ações somam 1 e o cookie anterior deixa de passar.
+
+`GET /api/health` passa a responder só `{"ok":true,"db":"up"}` (ou 503 com `ok` e `db`). Não espere `payments` nesse JSON. O detalhe fica de fora em produção.
+
+Senha nova: mínimo 8, máximo 128. Senha já gravada com menos de 8 ainda entra.
+
+O nginx manda HSTS, CSP (`default-src 'self'`), `nosniff`, referrer e Permissions-Policy com `always`. O registro do service worker saiu do HTML inline. Fonte externa não é mais carregada.
+
+`/robots.txt` e `/sitemap.xml` são arquivos estáticos do nginx. A política e os termos estão em `/privacidade` e `/termos`. O contato `futebadosparcas@outlook.com` está marcado como placeholder. CNPJ e endereço continuam por preencher.
+
+Imagens: `tf-techfoot-api:20261109-v2` e `tf-techfoot-web:20261109-v2`, build arm64 no host. Não faça push para um registry daqui.
 
 A API só entra em `techfoot-internal`. A web entra em `tf-edge` e em `techfoot-internal`. O Traefik precisa do provider Docker (não só do provider Swarm) para ler os labels deste container. O router `techfoot` escuta só o entrypoint `https`, com TLS e o serviço `techfoot` na porta 8080. O router `techfoot-http` escuta o entrypoint `http` e usa o middleware `techfoot-redirect`, definido nestes labels, para responder 301 para `https`. TLS não fica no entrypoint `http`.
 
@@ -102,20 +120,20 @@ Copie `deploy/backup-sqlite.sh` para `/srv/techfernandes/techfoot/backup-sqlite.
 Restore:
 
 ```bash
-sudo docker compose -f deploy/compose.prod.yaml stop api
+sudo docker compose -f /srv/techfernandes/techfoot/compose.prod.yaml stop api
 sudo rm -f /srv/techfernandes/techfoot/data/techfoot.db-wal \
            /srv/techfernandes/techfoot/data/techfoot.db-shm
 sudo sqlite3 /srv/techfernandes/techfoot/data/backups/techfoot-ESCOLHIDO.db \
   ".backup '/srv/techfernandes/techfoot/data/techfoot.db'"
 sudo chown 10001:10001 /srv/techfernandes/techfoot/data/techfoot.db
-sudo docker compose -f deploy/compose.prod.yaml start api
+sudo docker compose -f /srv/techfernandes/techfoot/compose.prod.yaml start api
 ```
 
 ## 5. Rollback
 
 ```bash
 # compose.prod.yaml: volte as duas tags para a leva anterior e suba de novo
-sudo docker compose -f deploy/compose.prod.yaml up -d
+sudo docker compose -f /srv/techfernandes/techfoot/compose.prod.yaml up -d
 ```
 
 Não apague a imagem antiga antes do `/api/health` da nova responder `db: "up"`. O diretório `/data` fica no host; trocar a tag não apaga o SQLite. Se a leva nova tiver mudado o schema de um jeito incompatível, restaure o backup feito antes do deploy.
@@ -125,9 +143,9 @@ Não apague a imagem antiga antes do `/api/health` da nova responder `db: "up"`.
 De um container na rede `tf-edge` (não há porta no host):
 
 ```bash
-sudo docker compose -f deploy/compose.prod.yaml exec web \
+sudo docker compose -f /srv/techfernandes/techfoot/compose.prod.yaml exec web \
   wget -qO- http://127.0.0.1:8080/api/health
-sudo docker compose -f deploy/compose.prod.yaml exec web \
+sudo docker compose -f /srv/techfernandes/techfoot/compose.prod.yaml exec web \
   wget -qS -O /dev/null http://127.0.0.1:8080/
 ```
 

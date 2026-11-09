@@ -9,6 +9,7 @@ export type SupportEnv = {
   PIX_MERCHANT_NAME?: string;
   PIX_MERCHANT_CITY?: string;
   PAYMENT_WEBHOOK_SECRET?: string;
+  NODE_ENV?: string;
 };
 
 export type PublicSupport = {
@@ -44,11 +45,14 @@ export function publicSupportStatus(env: SupportEnv = process.env): PublicSuppor
       ? null
       : "Nome ou cidade do recebedor ficaram inválidos depois da normalização do BR Code. Nenhum código foi gerado.";
   }
-  const missing = [
-    ...(brCode ? [] : ["Nome e cidade reais do recebedor, nas variáveis PIX_MERCHANT_NAME e PIX_MERCHANT_CITY"]),
-    "Um provedor de pagamento com confirmação no servidor. O segredo de webhook, sozinho, não é esse provedor",
-    "Nesta versão nenhuma doação libera recurso, mesmo depois de uma verificação",
-  ];
+  const developerNotes = env.NODE_ENV !== "production";
+  const missing = developerNotes
+    ? [
+      ...(brCode ? [] : ["Nome e cidade reais do recebedor, nas variáveis PIX_MERCHANT_NAME e PIX_MERCHANT_CITY"]),
+      "Um provedor de pagamento com confirmação no servidor. O segredo de webhook, sozinho, não é esse provedor",
+      "Nesta versão nenhuma doação libera recurso, mesmo depois de uma verificação",
+    ]
+    : [];
   return {
     pixKey,
     pixKeyType: "email",

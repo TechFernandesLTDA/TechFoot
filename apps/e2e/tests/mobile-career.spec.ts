@@ -8,7 +8,9 @@ test("no celular a carreira salva continua acessível", async ({ page }) => {
   await page.getByRole("button", { name: "Cadastrar" }).click();
   await page.getByLabel("Nome").fill("Mobile");
   await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha").fill("secret1");
+  await page.getByLabel("Senha").fill("secret12");
+  await page.getByRole("checkbox", { name: /Termos de Uso/ }).check();
+  await page.getByRole("checkbox", { name: /18 anos/ }).check();
   await page.getByRole("button", { name: "Criar conta" }).click();
   await expect(page.getByText("Nenhuma carreira salva")).toBeVisible();
 
@@ -31,7 +33,7 @@ test("no celular a carreira salva continua acessível", async ({ page }) => {
 
   await page.getByRole("button", { name: "Sair" }).click();
   await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha").fill("secret1");
+  await page.getByLabel("Senha").fill("secret12");
   await page.getByRole("button", { name: "Entrar" }).click();
   await expect(page.getByRole("button", { name: /Flamengo/ }).filter({ hasText: "Salva na sua conta neste servidor" })).toBeVisible();
 });

@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://techfoot.techfernandes.com.br/sitemap.xml

@@ -2,13 +2,26 @@ import { test, expect } from "@playwright/test";
 
 test("fluxo completo: registrar, criar carreira, simular rodada, ver tabela", async ({ page }) => {
   const email = `e2e-${Date.now()}@test.co`;
-  await page.goto("/");
+  const meDenied: string[] = [];
+  page.on("response", (response) => {
+    if (response.url().includes("/api/me") && response.status() === 401) meDenied.push(response.url());
+  });
+  await page.goto("/privacidade");
+  await expect(page.getByRole("heading", { name: "Política de Privacidade" })).toBeVisible();
+  await expect(page.getByText("TODO para Renan")).toBeVisible();
+  await page.goto("/termos");
+  await expect(page.getByRole("heading", { name: "Termos de Uso" })).toBeVisible();
+  const home = await page.goto("/");
+  expect(home?.headers()["content-security-policy"]).toContain("default-src 'self'");
+  expect(meDenied).toEqual([]);
 
   // registrar
   await page.getByRole("button", { name: "Cadastrar" }).click();
   await page.getByLabel("Nome").fill("Teste E2E");
   await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha").fill("secret1");
+  await page.getByLabel("Senha").fill("secret12");
+  await page.getByRole("checkbox", { name: /Termos de Uso/ }).check();
+  await page.getByRole("checkbox", { name: /18 anos/ }).check();
   await page.getByRole("button", { name: "Criar conta" }).click();
   await expect(page.getByRole("heading", { name: "Nova carreira" })).toBeVisible();
   await expect(page.locator(".club-results .club-choice")).toHaveCount(60);

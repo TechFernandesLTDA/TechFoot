@@ -11,5 +11,7 @@ if [ -z "${SESSION_SECRET:-}" ] && [ -r /run/secrets/session_secret ]; then
   SESSION_SECRET=$(tr -d '\r\n' < /run/secrets/session_secret)
   export SESSION_SECRET
 fi
+# db push adds sessionVersion (default 0) on an existing SQLite file.
+# Do not switch this database to `migrate deploy` without a baseline.
 npx prisma db push --schema apps/api/prisma/schema.prisma --skip-generate
 exec node --experimental-strip-types apps/api/src/server.ts
