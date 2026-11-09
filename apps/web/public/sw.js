@@ -1,4 +1,4 @@
-const CACHE = "techfoot-v1";
+const CACHE = "techfoot-v2";
 const PRECACHE = ["/"];
 
 self.addEventListener("install", (event) => {
@@ -13,7 +13,7 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-const NETWORK_ONLY = ["/auth", "/me", "/saves", "/support", "/health", "/world", "/competitions"];
+const NETWORK_ONLY = ["/api"];
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;

@@ -6,6 +6,7 @@ const DEV_SESSION_SECRETS = new Set([
   "change-me",
   "troque-por-um-segredo-longo-em-producao",
   "techfoot-dev-secret-change-me",
+  "SUBSTITUA-POR-UM-SEGREDO-EXCLUSIVO",
 ]);
 
 export type StartupIssue = { level: "fatal" | "warning"; message: string };

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import type { FastifyInstance } from "fastify";
-import { prisma } from "../src/db.ts";
+import { enableSqliteWal, prisma } from "../src/db.ts";
 import { buildApp } from "../src/server.ts";
 import { PROJECT_PIX_KEY } from "../src/support.ts";
 
@@ -37,6 +37,9 @@ describe("support routes", () => {
     assert.equal(healthBody.payments.pixBrCode, false);
     assert.equal(healthBody.payments.premiumCheckout, "unavailable");
     assert.equal(JSON.stringify(healthBody).includes(PROJECT_PIX_KEY), false);
+    await enableSqliteWal();
+    const journal = await prisma.$queryRawUnsafe<Array<{ journal_mode: string }>>("PRAGMA journal_mode");
+    assert.equal(journal[0]?.journal_mode, "wal");
 
     const support = await app.inject({ method: "GET", url: "/support" });
     assert.equal(support.statusCode, 200);

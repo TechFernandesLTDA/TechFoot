@@ -20,12 +20,14 @@ export type AdminControls = {
   membershipCount: number;
 };
 
+const API_ROOT = "/api";
+
 async function req<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string> ?? {}) };
   if (init?.method && init.method !== "GET" && init.body) headers["Content-Type"] = "application/json";
   let res: Response;
   try {
-    res = await fetch(path, { credentials: "include", ...init, headers });
+    res = await fetch(`${API_ROOT}${path}`, { credentials: "include", ...init, headers });
   } catch {
     throw new Error("Servidor indisponível. Confira se a API está no ar e tente de novo.");
   }

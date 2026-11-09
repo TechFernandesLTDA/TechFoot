@@ -15,6 +15,7 @@ describe("startup config", () => {
   it("refuses to listen in production with the example secret or a short secret", () => {
     const base = { NODE_ENV: "production", DATABASE_URL: "file:/data/techfoot.db", WEB_ORIGIN: "https://example.com" };
     assert.throws(() => assertReadyToListen({ ...base, SESSION_SECRET: "techfoot-dev-secret-change-me" }));
+    assert.throws(() => assertReadyToListen({ ...base, SESSION_SECRET: "SUBSTITUA-POR-UM-SEGREDO-EXCLUSIVO" }));
     assert.throws(() => assertReadyToListen({ ...base, SESSION_SECRET: "curto-demais" }));
     assert.doesNotThrow(() => assertReadyToListen({ ...base, SESSION_SECRET: "x".repeat(24) }));
     const missingOrigin = startupIssues({ ...base, WEB_ORIGIN: "", SESSION_SECRET: "x".repeat(24) });

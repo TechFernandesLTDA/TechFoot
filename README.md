@@ -83,22 +83,20 @@ O jogo inteiro é gratuito. O encaixe conservador é doação voluntária, sem p
 - A conta guarda nome, e-mail e senha com scrypt. A sessão é um cookie `tf` httpOnly por 7 dias.
 - O save é o JSON da carreira no SQLite local. Não há analytics, anúncio nem venda de dados.
 - O apoio não pede CPF, a chave Pix de quem doa nem cartão.
-- O service worker não guarda respostas de `/auth`, `/me`, `/saves`, `/support`, `/health`, `/world` ou `/competitions`.
+- O service worker não guarda respostas de `/api`. O navegador chama a API por essa origem, e o nginx tira o prefixo.
 - Em produção, defina `SESSION_SECRET` exclusivo (24 caracteres ou mais) e `WEB_ORIGIN` da origem pública. O valor de exemplo faz a API recusar o arranque. O cookie fica `Secure`.
 - As fontes vêm do Google Fonts quando a rede permite. Sem isso, o navegador usa a fonte genérica.
 
-## Receita local com Docker
+## Docker
 
-`Dockerfile` e `compose.yaml` sobem API e web só em `127.0.0.1`. Isso não foi executado como deploy. A validação esperada é `docker compose config`.
+`compose.yaml` na raiz é só o ensaio local, com portas em `127.0.0.1`. O servidor usa [deploy/README.md](deploy/README.md) e `deploy/compose.prod.yaml`: sem porta publicada, Traefik na rede `tf-edge`, API só na rede interna, SQLite em `/srv/techfernandes/techfoot/data`.
 
 ```bash
 docker compose config --quiet
-docker compose up --build
+docker compose -f deploy/compose.prod.yaml config --quiet
 ```
 
-A web fica em http://127.0.0.1:8080 e a API em http://127.0.0.1:3333. O SQLite vai para o volume `techfoot-data`. A receita usa `NODE_ENV=development` e o segredo de exemplo para conseguir abrir no computador. `GET /health` consulta o banco e responde `db: "up"` ou 503.
-
-Para um processo público, defina `NODE_ENV=production`, um `SESSION_SECRET` exclusivo com pelo menos 24 caracteres e `WEB_ORIGIN` com a origem HTTPS. Sem isso a API encerra antes de escutar. O cookie `tf` fica `Secure` em produção, então HTTP puro não mantém a sessão.
+`GET /health` consulta o banco e responde `db: "up"` ou 503. Em produção o cookie `tf` é `Secure` e o Fastify confia em `X-Forwarded-Proto`. O segredo de exemplo não sobe.
 
 ## O que já está pronto no código
 
@@ -112,7 +110,7 @@ Para um processo público, defina `NODE_ENV=production`, um `SESSION_SECRET` exc
 
 ## O que você precisa fazer para ir ao ar e receber apoio
 
-1. Escolher host, domínio e HTTPS. O compose local não substitui isso.
+1. Seguir [deploy/README.md](deploy/README.md) no host que já existe: build `linux/arm64`, diretório com dono uid 10001, env em `/srv/techfernandes/techfoot/techfoot.env`, Traefik em `tf-edge`. Este repositório não faz o deploy.
 2. Gerar um `SESSION_SECRET` exclusivo, definir `WEB_ORIGIN` e `NODE_ENV=production`.
 3. Decidir o banco: manter o SQLite com backup do volume, ou migrar para um banco com cópia própria. O arquivo não está numa nuvem pública.
 4. Conferir no banco, fora do jogo, se a chave `futebadosparcas@outlook.com` recebe Pix. O aplicativo não vê o extrato.

@@ -8,8 +8,13 @@ build
 apps/api/dev.db
 apps/api/dev.db-journal
 apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
+apps/api/prisma/*.db-wal
+apps/api/prisma/*.db-shm
 coverage
 .vite
 *.tsbuildinfo
 apps/e2e/test-results
 apps/e2e/playwright-report
+deploy/techfoot.env
+deploy/session_secret

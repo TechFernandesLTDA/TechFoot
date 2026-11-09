@@ -5,13 +5,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/auth": "http://127.0.0.1:3333",
-      "/me": "http://127.0.0.1:3333",
-      "/saves": "http://127.0.0.1:3333",
-      "/world": "http://127.0.0.1:3333",
-      "/support": "http://127.0.0.1:3333",
-      "/health": "http://127.0.0.1:3333",
-      "/competitions": "http://127.0.0.1:3333",
+      "/api": {
+        target: "http://127.0.0.1:3333",
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
     },
   },
 });

@@ -1,0 +1,71 @@
+# Stack de produção na rede do Traefik. Não publica porta no host:
+# só o Traefik escuta 80/443. A API fica só em techfoot-internal.
+name: techfoot
+
+services:
+  api:
+    image: tf-techfoot-api:20261109-v1
+    platform: linux/arm64
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: api
+      platforms:
+        - linux/arm64
+    restart: unless-stopped
+    user: "10001:10001"
+    environment:
+      DATABASE_URL: file:/data/techfoot.db
+      PORT: "3333"
+      TRUST_PROXY: "true"
+      PIX_KEY: futebadosparcas@outlook.com
+    env_file:
+      - /srv/techfernandes/techfoot/techfoot.env
+    volumes:
+      - /srv/techfernandes/techfoot/data:/data
+    networks:
+      - techfoot-internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3333/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  web:
+    image: tf-techfoot-web:20261109-v1
+    platform: linux/arm64
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: web
+      platforms:
+        - linux/arm64
+    restart: unless-stopped
+    user: "10001:10001"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - tf-edge
+      - techfoot-internal
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: tf-edge
+      traefik.http.routers.techfoot.rule: Host(`techfoot.techfernandes.com.br`)
+      traefik.http.routers.techfoot.entrypoints: http,https
+      traefik.http.routers.techfoot.tls: "true"
+      traefik.http.routers.techfoot.tls.certresolver: letsencrypt
+      traefik.http.services.techfoot.loadbalancer.server.port: "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  tf-edge:
+    external: true
+  techfoot-internal:
+    name: techfoot-internal

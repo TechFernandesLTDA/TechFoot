@@ -4,7 +4,7 @@ import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import { z } from "zod";
-import { prisma } from "./db.ts";
+import { enableSqliteWal, prisma } from "./db.ts";
 import { hashPassword, readToken, signToken, verifyPassword } from "./auth.ts";
 import {
   buyPlayer, createCareer, httpError, loadWorld, renewContract, sellPlayer, simulateRound, setTactic, takeLoan,
@@ -15,7 +15,8 @@ import { publicSupportStatus, verifyPaymentSignature } from "./support.ts";
 import { assertReadyToListen, loadLocalEnv, sessionCookie, startupIssues } from "./config.ts";
 
 export async function buildApp() {
-const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : true });
+const trustProxy = process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production";
+const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : true, trustProxy });
 await app.register(cors, { origin: process.env.WEB_ORIGIN ?? true, credentials: true });
 await app.register(cookie);
 await app.register(rateLimit, { global: false });
@@ -337,6 +338,7 @@ function isDirectRun(): boolean {
 if (isDirectRun()) {
   loadLocalEnv();
   assertReadyToListen();
+  await enableSqliteWal();
   const app = await buildApp();
   const port = Number(process.env.PORT ?? 3333);
   await app.listen({ port, host: "0.0.0.0" });
