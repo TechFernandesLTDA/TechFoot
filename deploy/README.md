@@ -83,7 +83,7 @@ sudo docker compose -f deploy/compose.prod.yaml ps
 
 O arquivo da raiz `compose.yaml` é a receita local com porta em `127.0.0.1`. Não use esse arquivo no servidor.
 
-A API só entra em `techfoot-internal`. A web entra em `tf-edge` e em `techfoot-internal`. O Traefik precisa do provider Docker (não só do provider Swarm) para ler os labels deste container. Os labels estão no serviço `web` e apontam o load balancer para a porta 8080.
+A API só entra em `techfoot-internal`. A web entra em `tf-edge` e em `techfoot-internal`. O Traefik precisa do provider Docker (não só do provider Swarm) para ler os labels deste container. O router `techfoot` escuta só o entrypoint `https`, com TLS e o serviço `techfoot` na porta 8080. O router `techfoot-http` escuta o entrypoint `http` e usa o middleware `techfoot-redirect`, definido nestes labels, para responder 301 para `https`. TLS não fica no entrypoint `http`.
 
 ## 4. Backup e restore
 

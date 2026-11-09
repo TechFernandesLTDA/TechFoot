@@ -53,9 +53,16 @@ services:
       traefik.enable: "true"
       traefik.docker.network: tf-edge
       traefik.http.routers.techfoot.rule: Host(`techfoot.techfernandes.com.br`)
-      traefik.http.routers.techfoot.entrypoints: http,https
+      traefik.http.routers.techfoot.entrypoints: https
       traefik.http.routers.techfoot.tls: "true"
       traefik.http.routers.techfoot.tls.certresolver: letsencrypt
+      traefik.http.routers.techfoot.service: techfoot
+      traefik.http.routers.techfoot-http.rule: Host(`techfoot.techfernandes.com.br`)
+      traefik.http.routers.techfoot-http.entrypoints: http
+      traefik.http.routers.techfoot-http.middlewares: techfoot-redirect
+      traefik.http.routers.techfoot-http.service: techfoot
+      traefik.http.middlewares.techfoot-redirect.redirectscheme.scheme: https
+      traefik.http.middlewares.techfoot-redirect.redirectscheme.permanent: "true"
       traefik.http.services.techfoot.loadbalancer.server.port: "8080"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
