@@ -3,7 +3,8 @@ export type Tactic = "offensive" | "balanced" | "defensive";
 export type Formation = "4-3-3" | "4-4-2" | "3-5-2" | "5-3-2" | "4-2-3-1";
 export type EventKind =
   | "goal" | "saved" | "post" | "crossbar" | "miss" | "whistle"
-  | "yellow" | "red" | "injury" | "foul" | "substitution";
+  | "yellow" | "red" | "injury" | "foul" | "substitution"
+  | "penalty" | "corner" | "freekick" | "chance";
 
 export interface Player {
   id: string;
@@ -76,7 +77,9 @@ export interface MatchEvent {
   text: string;
   playerId?: string;
   teamId: string;
-  side: "home" | "away";
+  side: "home" | "away" | "none";
+  big?: boolean;
+  stoppage?: number;
 }
 
 export interface Cards {
@@ -103,6 +106,8 @@ export interface SubstitutionPlan {
   playerInId: string;
 }
 
+export type FormMark = "W" | "D" | "L";
+
 export interface Standing {
   clubId: string;
   played: number;
@@ -112,6 +117,9 @@ export interface Standing {
   gf: number;
   ga: number;
   points: number;
+  yellows: number;
+  reds: number;
+  form: FormMark[];
 }
 
 export interface Fixture {
@@ -120,17 +128,22 @@ export interface Fixture {
   awayId: string;
   played: boolean;
   result?: MatchResult;
+  date?: string;
 }
 
 export interface CupFixture {
-  slot: string; // "R16" | "QF" | "SF" | "F"
+  slot: string;
+  tieId: string;
+  leg: 1 | 2;
+  singleLeg: boolean;
   homeId: string;
   awayId: string;
   played: boolean;
   winnerId?: string;
   homeGoals?: number;
   awayGoals?: number;
-  penalties?: { home: number; away: number };
+  penalties?: { home: number; away: number; winner?: "home" | "away" };
+  date?: string;
 }
 
 export interface LedgerEntry {
