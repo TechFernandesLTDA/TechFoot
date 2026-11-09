@@ -1,9 +1,10 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { api, type AdminControls, type Career, type Club, type Formation, type MatchResult, type Player, type Tactic, type User } from "./api";
+import { api, isOfflineError, type AdminControls, type Career, type Club, type Formation, type MatchResult, type Player, type Tactic, type User } from "./api";
 import { tr, type Lang, type TKey } from "./i18n";
+import { SupportPanel } from "./support";
 
-type Tab = "home" | "squad" | "fixtures" | "cup" | "market" | "finance" | "inbox" | "league" | "competitions" | "admin" | "report";
-type IconName = "home" | "users" | "calendar" | "trophy" | "market" | "wallet" | "mail" | "table" | "play" | "arrow";
+type Tab = "home" | "squad" | "fixtures" | "cup" | "market" | "finance" | "inbox" | "league" | "competitions" | "admin" | "report" | "support";
+type IconName = "home" | "users" | "calendar" | "trophy" | "market" | "wallet" | "mail" | "table" | "play" | "arrow" | "heart" | "more";
 
 const POS_ORDER: Record<string, number> = { GK: 0, DF: 1, MF: 2, FW: 3 };
 const TACTIC_LABEL: Record<Tactic, string> = { offensive: "Ofensivo", balanced: "Equilibrado", defensive: "Defensivo" };
@@ -19,29 +20,72 @@ export function App() {
   const [save, setSave] = useState<{ id: string; name: string; career: Career } | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [lang, setLang] = useState<Lang>("pt");
+  const [lang, setLangValue] = useState<Lang>(() => readLang());
   const [busy, setBusy] = useState(false);
+  const [boot, setBoot] = useState<"loading" | "ready" | "offline">("loading");
+  const [bootError, setBootError] = useState("");
+  const [publicSupport, setPublicSupport] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [clubSearch, setClubSearch] = useState("");
   const [clubDivision, setClubDivision] = useState<"all" | 1 | 2 | 3>("all");
   const [clubLetter, setClubLetter] = useState("all");
   const [selectedClubId, setSelectedClubId] = useState("");
 
+  function setLang(next: Lang) {
+    try { localStorage.setItem("techfoot.lang", next); } catch { /* preferência local opcional */ }
+    setLangValue(next);
+  }
+
   useEffect(() => {
-    api.me().then(setUser).catch(() => setUser(null));
-  }, []);
+    document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
+  }, [lang]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setMoreOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [moreOpen]);
+
+  async function refreshSession() {
+    setBoot("loading");
+    try {
+      setUser(await api.me());
+      setBootError("");
+      setBoot("ready");
+    } catch (err) {
+      setUser(null);
+      const message = (err as Error).message;
+      if (!isOfflineError(err) && message === "Não autenticado") {
+        setBoot("ready");
+        return;
+      }
+      setBootError(message);
+      setBoot("offline");
+    }
+  }
+
+  async function reloadWorld() {
+    setWorldLoading(true);
+    setError("");
+    try {
+      const [nextSaves, nextWorld] = await Promise.all([api.saves(), api.world()]);
+      setSaves(nextSaves);
+      setWorld(nextWorld.clubs);
+      setWorldStats(nextWorld.stats);
+      setStateCompetitions(nextWorld.stateCompetitions);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setWorldLoading(false);
+    }
+  }
+
+  useEffect(() => { void refreshSession(); }, []);
 
   useEffect(() => {
     if (!user) return;
-    setWorldLoading(true);
-    Promise.all([api.saves(), api.world()])
-      .then(([nextSaves, nextWorld]) => {
-        setSaves(nextSaves);
-        setWorld(nextWorld.clubs);
-        setWorldStats(nextWorld.stats);
-        setStateCompetitions(nextWorld.stateCompetitions);
-      })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setWorldLoading(false));
+    void reloadWorld();
   }, [user]);
 
   async function onAuth(e: FormEvent<HTMLFormElement>) {
@@ -126,15 +170,45 @@ export function App() {
   });
   const selectedClub = world.find((club) => club.id === selectedClubId);
 
+  if (boot === "loading") return <BootScreen />;
+  if (boot === "offline") {
+    return (
+      <div className="app">
+        <SkipLink />
+        <main className="panel offline-panel" id="conteudo">
+          <div className="eyebrow">SERVIDOR</div>
+          <h2>A API não respondeu.</h2>
+          <p>{bootError}</p>
+          <p>Conta, carreira e simulação ficam no servidor local. Esta tela não finge uma partida offline.</p>
+          <button className="primary-cta primary-cta--compact" type="button" onClick={() => void refreshSession()}>Tentar de novo</button>
+          <SupportPanel lang={lang} authed={false} offlineFallback />
+        </main>
+      </div>
+    );
+  }
+
+  if (!user && publicSupport) {
+    return (
+      <div className="app app--support">
+        <SkipLink />
+        <main id="conteudo">
+          <SupportPanel lang={lang} authed={false} onBack={() => setPublicSupport(false)} />
+        </main>
+      </div>
+    );
+  }
+
   if (!user) {
-    return <AuthScreen lang={lang} mode={mode} busy={busy} error={error} setLang={setLang} setMode={setMode} onSubmit={onAuth} />;
+    return <AuthScreen lang={lang} mode={mode} busy={busy} error={error} setLang={setLang} setMode={setMode} onSubmit={onAuth} onSupport={() => setPublicSupport(true)} onDismissError={() => setError("")} />;
   }
 
   if (!save) {
     return (
       <div className="app app--lobby">
-        <Header user={user} lang={lang} setLang={setLang} onLogout={async () => { await api.logout(); setUser(null); }} />
-        {error ? <Alert message={error} /> : null}
+        <SkipLink />
+        <Header user={user} lang={lang} setLang={setLang} onLogout={async () => { await api.logout(); setUser(null); setMode("login"); }} />
+        {error ? <Alert message={error} onDismiss={() => setError("")} /> : null}
+        {!worldLoading && world.length === 0 ? <button className="ghost-button" type="button" onClick={() => void reloadWorld()}>Tentar carregar os clubes</button> : null}
         <main className="lobby-grid">
           <section className="panel panel--dark lobby-welcome">
             <div className="eyebrow">TEMPORADA 2026 / CENTRAL DE CARREIRAS</div>
@@ -146,17 +220,17 @@ export function App() {
               <Stat label="Jogadores" value={worldLoading ? "--" : String(worldStats.players)} />
             </div>
           </section>
-          <section className="panel lobby-saves" aria-label={tr(lang, "careers")}>
+          <section className="panel lobby-saves" id="conteudo" aria-label={tr(lang, "careers")}>
             <SectionHeading eyebrow="ARQUIVO" title={tr(lang, "careers")} />
             {saves.length === 0 ? <EmptyState icon="mail" title="Nenhuma carreira salva" text="Escolha um clube ao lado para abrir seu primeiro arquivo." /> : (
               <div className="save-list">
                 {saves.map((item) => <button className="save-row" key={item.id} onClick={() => openSave(item.id)} disabled={busy}>
-                  <span className="save-mark"><Icon name="arrow" /></span><span><strong>{item.name}</strong><small>Carreira salva na nuvem</small></span><Icon name="arrow" />
+                  <span className="save-mark"><Icon name="arrow" /></span><span><strong>{item.name}</strong><small>Salva na sua conta neste servidor</small></span><Icon name="arrow" />
                 </button>)}
               </div>
             )}
           </section>
-          <ClubPicker lang={lang} clubs={filteredClubs} selected={selectedClub} search={clubSearch} division={clubDivision} letter={clubLetter} loading={worldLoading} busy={busy} setSearch={setClubSearch} setDivision={setClubDivision} setLetter={setClubLetter} selectClub={setSelectedClubId} createCareer={createCareer} />
+          <ClubPicker lang={lang} clubs={filteredClubs} selected={selectedClub} search={clubSearch} division={clubDivision} letter={clubLetter} loading={worldLoading} busy={busy} locked={saves.length > 0} setSearch={setClubSearch} setDivision={setClubDivision} setLetter={setClubLetter} selectClub={setSelectedClubId} createCareer={createCareer} />
         </main>
       </div>
     );
@@ -165,8 +239,9 @@ export function App() {
   const unread = save.career.inbox.filter((message) => !message.read).length;
   return (
     <div className="app">
-      <Header user={user} lang={lang} setLang={setLang} club={myClub(save.career)} onLogout={async () => { await api.logout(); setUser(null); setSave(null); }} />
-      {error ? <Alert message={error} /> : null}
+      <SkipLink />
+      <Header user={user} lang={lang} setLang={setLang} club={myClub(save.career)} onFiles={() => setSave(null)} onLogout={async () => { await api.logout(); setUser(null); setSave(null); setMode("login"); }} />
+      {error ? <Alert message={error} onDismiss={() => setError("")} /> : null}
       <div className="app-layout">
         <aside className="sidebar">
           <div className="sidebar__label">COMANDO</div>
@@ -175,12 +250,14 @@ export function App() {
               <Icon name={item.icon} /><span>{label(item.tab, lang)}</span>{item.tab === "inbox" && unread > 0 ? <b>{unread}</b> : null}
             </button>)}
           </nav>
-          <div className="sidebar__season"><span>SEASON STATUS</span><strong>{save.career.season}</strong><small>Rodada {save.career.round} de {roundCount(save.career)}</small><div className="progress"><i style={{ width: `${Math.min(100, (save.career.round / roundCount(save.career)) * 100)}%` }} /></div></div>
+          <div className="sidebar__season"><span>{lang === "pt" ? "TEMPORADA" : "SEASON"}</span><strong>{save.career.season}</strong><small>Rodada {save.career.round} de {roundCount(save.career)}</small><div className="progress" role="progressbar" aria-valuemin={1} aria-valuemax={roundCount(save.career)} aria-valuenow={save.career.round} aria-label="Rodada da temporada"><i style={{ width: `${Math.min(100, (save.career.round / roundCount(save.career)) * 100)}%` }} /></div></div>
         </aside>
-        <main className="main-content">
+        <main className="main-content" id="conteudo" aria-busy={busy}>
           <div className="mobile-tabs" aria-label="Navegação móvel">
-            {navItems.slice(0, 5).map((item) => <button key={item.tab} className={tab === item.tab ? "is-active" : ""} aria-current={tab === item.tab ? "page" : undefined} onClick={() => setTab(item.tab)}><Icon name={item.icon} /><span>{label(item.tab, lang)}</span></button>)}
+            {mobilePrimary.map((item) => <button key={item.tab} type="button" className={tab === item.tab ? "is-active" : ""} aria-current={tab === item.tab ? "page" : undefined} onClick={() => { setTab(item.tab); setMoreOpen(false); }}><Icon name={item.icon} /><span>{label(item.tab, lang)}</span>{item.tab === "inbox" && unread > 0 ? <b className="tab-badge">{unread}</b> : null}</button>)}
+            <button type="button" className={moreTabs.some((item) => item.tab === tab) ? "is-active" : ""} aria-expanded={moreOpen} aria-controls="more-menu" onClick={() => setMoreOpen((open) => !open)}><Icon name="more" /><span>Mais</span></button>
           </div>
+          {moreOpen ? <div className="more-sheet" id="more-menu" role="dialog" aria-modal="true" aria-label="Mais seções"><button type="button" className="more-sheet__backdrop" aria-label="Fechar menu" onClick={() => setMoreOpen(false)} /><div className="more-sheet__panel">{moreTabs.map((item) => <button key={item.tab} type="button" className={tab === item.tab ? "is-active" : ""} onClick={() => { setTab(item.tab); setMoreOpen(false); }}><Icon name={item.icon} /><span>{label(item.tab, lang)}</span></button>)}</div></div> : null}
           {tab === "home" && <Home save={save} onSetTab={setTab} onSimulate={simulate} busy={busy} />}
           {tab === "squad" && <><Squad save={save} withSave={withSave} busy={busy} /><SquadPlanBar save={save} withSave={withSave} busy={busy} /><PlayerInsights career={save.career} /></>}
           {tab === "fixtures" && <Fixtures save={save} />}
@@ -192,6 +269,7 @@ export function App() {
           {tab === "competitions" && <Competitions save={save} stateCompetitions={stateCompetitions} />}
           {tab === "admin" && <Administration save={save} withSave={withSave} busy={busy} />}
           {tab === "report" && <Report save={save} />}
+          {tab === "support" && <SupportPanel lang={lang} authed />}
         </main>
       </div>
     </div>
@@ -202,26 +280,32 @@ const navItems: { tab: Tab; icon: IconName }[] = [
   { tab: "home", icon: "home" }, { tab: "squad", icon: "users" }, { tab: "fixtures", icon: "calendar" },
   { tab: "cup", icon: "trophy" }, { tab: "market", icon: "market" }, { tab: "finance", icon: "wallet" },
   { tab: "inbox", icon: "mail" }, { tab: "league", icon: "table" }, { tab: "competitions", icon: "calendar" }, { tab: "admin", icon: "wallet" },
+  { tab: "report", icon: "play" }, { tab: "support", icon: "heart" },
 ];
+const mobilePrimary = navItems.filter((item) => ["home", "squad", "fixtures", "inbox"].includes(item.tab));
+const moreTabs = navItems.filter((item) => !["home", "squad", "fixtures", "inbox"].includes(item.tab));
 
-function AuthScreen({ lang, mode, busy, error, setLang, setMode, onSubmit }: { lang: Lang; mode: "login" | "register"; busy: boolean; error: string; setLang: (lang: Lang) => void; setMode: (mode: "login" | "register") => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <div className="auth-screen"><div className="auth-art"><div className="auth-art__grid" /><div className="auth-art__ball">TF</div><div className="auth-art__copy"><span>TECHFOOT / 01</span><h1>Gerencie.<br /><em>Compita.</em><br />Evolua.</h1><p>Uma liga inteira nas suas mãos.</p></div></div><div className="auth-card"><div className="auth-card__top"><div className="brand-lockup"><span className="brand-mark">TF</span><strong>TECHFOOT</strong></div><button className="lang-switch" onClick={() => setLang(lang === "pt" ? "en" : "pt")}>{lang === "pt" ? "EN" : "PT"}</button></div><div className="eyebrow">{mode === "login" ? "ÁREA RESTRITA" : "NOVO MANAGER"}</div><h2>{mode === "login" ? "Bem-vindo de volta." : "Comece sua carreira."}</h2><p className="auth-subtitle">{mode === "login" ? "Acesse seu centro de comando." : "Seu clube precisa de um novo líder."}</p><form className="auth-form" onSubmit={onSubmit}>{mode === "register" ? <Field name="name" label={tr(lang, "name")} placeholder="Como devemos chamar você?" /> : null}<Field name="email" label={tr(lang, "email")} type="email" placeholder="manager@techfoot.com" /><Field name="password" label={tr(lang, "password")} type="password" placeholder="Mínimo de 6 caracteres" minLength={6} />{error ? <Alert message={error} /> : null}<button className="primary-cta" disabled={busy}>{busy ? "Carregando..." : mode === "login" ? tr(lang, "enter") : tr(lang, "register")}<Icon name="arrow" /></button></form><button className="auth-toggle" onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Ainda não tem uma conta? " : "Já possui uma conta? "}<strong>{mode === "login" ? tr(lang, "toRegister") : tr(lang, "toLogin")}</strong></button><div className="auth-footer"><span>CONTA SEGURA</span><span>•</span><span>SINGLEPLAYER</span><span>•</span><span>MIT OPEN SOURCE</span></div></div></div>;
+function AuthScreen({ lang, mode, busy, error, setLang, setMode, onSubmit, onSupport, onDismissError }: { lang: Lang; mode: "login" | "register"; busy: boolean; error: string; setLang: (lang: Lang) => void; setMode: (mode: "login" | "register") => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onSupport: () => void; onDismissError: () => void }) {
+  return <div className="auth-screen"><SkipLink /><div className="auth-art"><div className="auth-art__grid" /><div className="auth-art__ball">TF</div><div className="auth-art__copy"><span>TECHFOOT / 01</span><h1>Gerencie.<br /><em>Compita.</em><br />Evolua.</h1><p>Uma liga inteira nas suas mãos.</p></div></div><div className="auth-card" id="conteudo"><div className="auth-card__top"><div className="brand-lockup"><span className="brand-mark">TF</span><strong>TECHFOOT</strong></div><button className="lang-switch" onClick={() => setLang(lang === "pt" ? "en" : "pt")}>{lang === "pt" ? "EN" : "PT"}</button></div><div className="eyebrow">{mode === "login" ? "ÁREA RESTRITA" : "NOVO MANAGER"}</div><h2>{mode === "login" ? "Bem-vindo de volta." : "Comece sua carreira."}</h2><p className="auth-subtitle">{mode === "login" ? "Acesse seu centro de comando." : "Seu clube precisa de um novo líder."}</p><form className="auth-form" onSubmit={onSubmit}>{mode === "register" ? <Field name="name" label={tr(lang, "name")} placeholder="Como devemos chamar você?" /> : null}<Field name="email" label={tr(lang, "email")} type="email" placeholder="manager@techfoot.com" /><Field name="password" label={tr(lang, "password")} type="password" placeholder="Mínimo de 6 caracteres" minLength={6} />{error ? <Alert message={error} onDismiss={onDismissError} /> : null}<button className="primary-cta" type="submit" disabled={busy}>{busy ? "Carregando..." : mode === "login" ? tr(lang, "enter") : tr(lang, "register")}<Icon name="arrow" /></button></form><button className="auth-toggle" onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Ainda não tem uma conta? " : "Já possui uma conta? "}<strong>{mode === "login" ? tr(lang, "toRegister") : tr(lang, "toLogin")}</strong></button><button className="auth-toggle" type="button" onClick={onSupport}>Apoio voluntário com Pix. Não libera recursos.</button><div className="auth-footer"><span>CONTA SEGURA</span><span>•</span><span>SINGLEPLAYER</span><span>•</span><span>MIT OPEN SOURCE</span></div></div></div>;
 }
 
 function Field({ name, label, type = "text", placeholder, minLength }: { name: string; label: string; type?: string; placeholder: string; minLength?: number }) {
   return <label className="field"><span>{label}</span><input name={name} type={type} placeholder={placeholder} required minLength={minLength} /></label>;
 }
 
-function Header({ user, club, lang, setLang, onLogout }: { user: User; club?: Club; lang: Lang; setLang: (lang: Lang) => void; onLogout: () => void }) {
-  return <header className="topbar"><div className="brand-lockup"><span className="brand-mark">TF</span><strong>TECHFOOT</strong><small>MANAGER CONSOLE</small></div>{club ? <div className="topbar-club"><span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span><div><strong>{club.name}</strong><small>{club.city} · {divisionLabel(club.division)}</small></div></div> : null}<div className="topbar-actions"><span className="online-dot">ONLINE</span><span className="user-name">{user.name}</span><button className="icon-button" title="Trocar idioma" aria-label="Trocar idioma" onClick={() => setLang(lang === "pt" ? "en" : "pt")}>{lang === "pt" ? "EN" : "PT"}</button><button className="logout-button" onClick={onLogout}>{tr(lang, "logout")}</button></div></header>;
+function Header({ user, club, lang, setLang, onLogout, onFiles }: { user: User; club?: Club; lang: Lang; setLang: (lang: Lang) => void; onLogout: () => void; onFiles?: () => void }) {
+  return <header className="topbar"><div className="brand-lockup"><span className="brand-mark">TF</span><strong>TECHFOOT</strong><small>{lang === "pt" ? "CENTRAL DO MANAGER" : "MANAGER CONSOLE"}</small></div>{club ? <div className="topbar-club"><span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span><div><strong>{club.name}</strong><small>{club.city} · {divisionLabel(club.division)}</small></div></div> : null}<div className="topbar-actions"><span className="online-dot">{lang === "pt" ? "SESSÃO" : "SESSION"}</span><span className="user-name">{user.name}</span>{onFiles ? <button className="icon-button files-button" type="button" onClick={onFiles}>{lang === "pt" ? "Arquivos" : "Files"}</button> : null}<button className="icon-button" type="button" title="Trocar idioma" aria-label="Trocar idioma" onClick={() => setLang(lang === "pt" ? "en" : "pt")}>{lang === "pt" ? "EN" : "PT"}</button><button className="logout-button" type="button" onClick={onLogout}>{tr(lang, "logout")}</button></div></header>;
 }
 
 function Home({ save, onSetTab, onSimulate, busy }: { save: { id: string; career: Career }; onSetTab: (tab: Tab) => void; onSimulate: () => void; busy: boolean }) {
   const c = myClub(save.career);
   const next = save.career.fixtures.find((fixture) => !fixture.played && (fixture.homeId === c.id || fixture.awayId === c.id));
-  const opponent = next ? (next.homeId === c.id ? clubName(save.career, next.awayId) : clubName(save.career, next.homeId)) : "Calendário encerrado";
+  const homeName = next ? clubName(save.career, next.homeId) : c.name;
+  const awayName = next ? clubName(save.career, next.awayId) : "Calendário encerrado";
+  const userIsHome = next ? next.homeId === c.id : true;
+  const opponent = next ? (userIsHome ? awayName : homeName) : "Calendário encerrado";
   const recent = save.career.fixtures.filter((fixture) => fixture.played && fixture.result && (fixture.homeId === c.id || fixture.awayId === c.id)).slice(-5);
-  return <div className="page page--home"><PageIntro eyebrow="CENTRO DE COMANDO" title={`Bom dia, ${c.name}.`} subtitle="Tudo que importa para sua próxima decisão está aqui." action={<button className="primary-cta primary-cta--compact" onClick={onSimulate} disabled={busy}><Icon name="play" />{busy ? "SIMULANDO..." : "SIMULAR RODADA"}</button>} /><div className="metric-grid"><Metric icon="table" label="Posição na liga" value={`${positionOf(save.career)}º`} detail={`${save.career.table.find((row) => row.clubId === c.id)?.points ?? 0} pontos`} tone="gold" /><Metric icon="wallet" label="Caixa disponível" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="balanço atual" /><Metric icon="users" label="Moral do clube" value={`${c.morale}`} detail={mood(c.morale)} tone="green" /><Metric icon="trophy" label="Próximo adversário" value={abbreviated(opponent)} detail={next ? `Rodada ${next.round}` : "fim da temporada"} /></div><div className="home-grid"><section className="panel next-match"><div className="panel-kicker">PRÓXIMO COMPROMISSO <span>RODADA {next?.round ?? "—"}</span></div><div className="matchup"><div className="match-team"><span className="club-crest club-crest--large crest--1"><span>{abbr(c.name)}</span></span><strong>{c.name}</strong><small>MANDANTE</small></div><div className="match-vs"><span>VS</span><small>{next ? "EM 2 DIAS" : "—"}</small></div><div className="match-team match-team--away"><span className="club-crest club-crest--large crest--2"><span>{abbr(opponent)}</span></span><strong>{opponent}</strong><small>VISITANTE</small></div></div><div className="match-actions"><button className="ghost-button" onClick={() => onSetTab("squad")}>Ajustar escalação <Icon name="arrow" /></button><button className="ghost-button" onClick={() => onSetTab("fixtures")}>Ver calendário <Icon name="arrow" /></button></div></section><section className="panel form-panel"><SectionHeading eyebrow="MOMENTO" title="Últimos resultados" /><div className="form-strip">{recent.length === 0 ? <span className="muted">Sua temporada começa agora.</span> : recent.map((fixture, index) => <span className={`form-pill ${resultClass(fixture.result!, c.id)}`} key={index}>{resultLetter(fixture.result!, c.id)}</span>)}</div><p className="panel-note">{recent.length ? "A forma recente influencia a confiança do vestiário." : "Uma boa estreia muda o humor do clube."}</p></section><section className="panel news-panel"><SectionHeading eyebrow="MURAL DO CLUBE" title="Últimas notícias" action={<button className="text-button" onClick={() => onSetTab("inbox")}>Ver inbox <Icon name="arrow" /></button>} />{save.career.news.slice(0, 4).map((news, index) => <div className="news-row" key={`${news}-${index}`}><span className={`news-dot news-dot--${index % 3}`} /><div><strong>{news}</strong><small>Atualização do centro de comando</small></div><span className="news-time">agora</span></div>)}</section><section className="panel table-panel"><SectionHeading eyebrow={c.division === 1 ? "SÉRIE A" : "SÉRIE B"} title="Classificação" action={<button className="text-button" onClick={() => onSetTab("league")}>Tabela completa <Icon name="arrow" /></button>} /><MiniTable save={save} /></section></div></div>;
+  return <div className="page page--home"><PageIntro eyebrow="CENTRO DE COMANDO" title={`Bom dia, ${c.name}.`} subtitle="Tudo que importa para sua próxima decisão está aqui." action={<button className="primary-cta primary-cta--compact" onClick={onSimulate} disabled={busy}><Icon name="play" />{busy ? "SIMULANDO..." : "SIMULAR RODADA"}</button>} /><div className="metric-grid"><Metric icon="table" label="Posição na liga" value={`${positionOf(save.career)}º`} detail={`${save.career.table.find((row) => row.clubId === c.id)?.points ?? 0} pontos`} tone="gold" /><Metric icon="wallet" label="Caixa disponível" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="balanço atual" /><Metric icon="users" label="Moral do clube" value={`${c.morale}`} detail={mood(c.morale)} tone="green" /><Metric icon="trophy" label="Próximo adversário" value={abbreviated(opponent)} detail={next ? `Rodada ${next.round}` : "fim da temporada"} /></div><div className="home-grid"><section className="panel next-match"><div className="panel-kicker">PRÓXIMO COMPROMISSO <span>RODADA {next?.round ?? "—"}</span></div><div className="matchup" aria-label="Próximo jogo"><div className="match-team"><span className={`club-crest club-crest--large crest--${next ? save.career.clubs.find((club) => club.id === next.homeId)?.division ?? 1 : c.division}`}><span>{abbr(homeName)}</span></span><strong>{homeName}</strong><small>{next && userIsHome ? "VOCÊ · MANDANTE" : "MANDANTE"}</small></div><div className="match-vs"><span>VS</span><small>{next ? `RODADA ${next.round}` : "—"}</small></div><div className="match-team match-team--away"><span className={`club-crest club-crest--large crest--${next ? save.career.clubs.find((club) => club.id === next.awayId)?.division ?? 2 : 2}`}><span>{abbr(awayName)}</span></span><strong>{awayName}</strong><small>{next && !userIsHome ? "VOCÊ · VISITANTE" : "VISITANTE"}</small></div></div><div className="match-actions"><button className="ghost-button" onClick={() => onSetTab("squad")}>Ajustar escalação <Icon name="arrow" /></button><button className="ghost-button" onClick={() => onSetTab("fixtures")}>Ver calendário <Icon name="arrow" /></button></div></section><section className="panel form-panel"><SectionHeading eyebrow="MOMENTO" title="Últimos resultados" /><div className="form-strip">{recent.length === 0 ? <span className="muted">Sua temporada começa agora.</span> : recent.map((fixture, index) => <span className={`form-pill ${resultClass(fixture.result!, c.id)}`} key={index}>{resultLetter(fixture.result!, c.id)}</span>)}</div><p className="panel-note">{recent.length ? "A forma recente influencia a confiança do vestiário." : "Uma boa estreia muda o humor do clube."}</p></section><section className="panel news-panel"><SectionHeading eyebrow="MURAL DO CLUBE" title="Últimas notícias" action={<button className="text-button" onClick={() => onSetTab("inbox")}>Ver inbox <Icon name="arrow" /></button>} />{save.career.news.slice(0, 4).map((news, index) => <div className="news-row" key={`${news}-${index}`}><span className={`news-dot news-dot--${index % 3}`} /><div><strong>{news}</strong><small>Atualização do centro de comando</small></div><span className="news-time">agora</span></div>)}</section><section className="panel table-panel"><SectionHeading eyebrow={divisionLabel(c.division).toUpperCase()} title="Classificação" action={<button className="text-button" onClick={() => onSetTab("league")}>Tabela completa <Icon name="arrow" /></button>} /><MiniTable save={save} /></section></div></div>;
 }
 
 function Squad({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) {
@@ -270,7 +354,7 @@ function playerShortObject(club: Club, id: string): string { return club.players
 
 function PlayerToken({ player }: { player: Player }) { return <span className="pitch-token" title={player.name}><b>{positionLabel(player.position)}</b><small>{lastName(player.name)}</small></span>; }
 
-function ClubPicker({ lang, clubs, selected, search, division, letter, loading, busy, setSearch, setDivision, setLetter, selectClub, createCareer }: { lang: Lang; clubs: { id: string; name: string; city: string; state: string; division: number }[]; selected?: { id: string; name: string; city: string; state: string; division: number }; search: string; division: "all" | 1 | 2 | 3; letter: string; loading: boolean; busy: boolean; setSearch: (value: string) => void; setDivision: (value: "all" | 1 | 2 | 3) => void; setLetter: (value: string) => void; selectClub: (id: string) => void; createCareer: (id: string) => void }) {
+function ClubPicker({ lang, clubs, selected, search, division, letter, loading, busy, locked, setSearch, setDivision, setLetter, selectClub, createCareer }: { lang: Lang; clubs: { id: string; name: string; city: string; state: string; division: number }[]; selected?: { id: string; name: string; city: string; state: string; division: number }; search: string; division: "all" | 1 | 2 | 3; letter: string; loading: boolean; busy: boolean; locked: boolean; setSearch: (value: string) => void; setDivision: (value: "all" | 1 | 2 | 3) => void; setLetter: (value: string) => void; selectClub: (id: string) => void; createCareer: (id: string) => void }) {
   const letters = ["all", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -283,14 +367,14 @@ function ClubPicker({ lang, clubs, selected, search, division, letter, loading, 
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
   }, []);
-  return <section className="panel panel--cream club-picker" aria-label={tr(lang, "newCareer")}><div className="picker-heading"><SectionHeading eyebrow="NOVO ARQUIVO" title={tr(lang, "newCareer")} /><span className="picker-count" aria-live="polite">{loading ? "Carregando..." : `${clubs.length} resultados`}</span></div><p className="panel-lead">Busque o clube, filtre a divisão e confirme o projeto que você vai administrar.</p><div className="club-search"><span className="search-mark" aria-hidden="true">/</span><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar clube, cidade ou estado" aria-label="Buscar clube, cidade ou estado" /><kbd>⌘ K</kbd></div><div className="filter-row" role="group" aria-label="Filtros de clubes">{(["all", 1, 2, 3] as const).map((value) => <button key={value} className={division === value ? "filter-button is-active" : "filter-button"} aria-pressed={division === value} onClick={() => setDivision(value)}>{value === "all" ? "Todos" : `Série ${value === 1 ? "A" : value === 2 ? "B" : "C"}`}</button>)}</div><div className="letter-filter" aria-label="Filtrar por letra">{letters.map((value) => <button key={value} className={letter === value ? "is-active" : ""} aria-pressed={letter === value} aria-label={value === "all" ? "Todas as letras" : `Letra ${value}`} onClick={() => setLetter(value)}>{value === "all" ? "#" : value}</button>)}</div><div className="club-results" aria-busy={loading}>{loading ? Array.from({ length: 8 }, (_, index) => <span className="club-skeleton" key={index} />) : clubs.length === 0 ? <EmptyState icon="users" title="Nenhum clube encontrado" text="Tente outro nome, estado ou remova um filtro." /> : clubs.map((club) => <button className={selected?.id === club.id ? "club-choice is-selected" : "club-choice"} key={club.id} aria-label={club.name} aria-pressed={selected?.id === club.id} onClick={() => selectClub(club.id)} disabled={busy}><span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span><span className="club-choice__copy"><strong>{club.name}</strong><small>{club.state} · {divisionLabel(club.division)}</small></span><Icon name="arrow" /></button>)}</div><div className="selected-club-bar">{selected ? <div className="selected-club-copy"><span className={`club-crest crest--${selected.division}`}><span>{abbr(selected.name)}</span></span><span><small>PROJETO SELECIONADO</small><strong>{selected.name}</strong></span></div> : <span className="muted">Selecione um clube para continuar.</span>}<button className="primary-cta primary-cta--compact" disabled={!selected || busy} onClick={() => selected && createCareer(selected.id)}>Assumir este clube <Icon name="arrow" /></button></div></section>;
+  return <section className="panel panel--cream club-picker" aria-label={tr(lang, "newCareer")}><div className="picker-heading"><SectionHeading eyebrow="NOVO ARQUIVO" title={tr(lang, "newCareer")} /><span className="picker-count" aria-live="polite">{loading ? "Carregando..." : `${clubs.length} resultados`}</span></div><p className="panel-lead">Busque o clube, filtre a divisão e confirme o projeto que você vai administrar.</p><div className="club-search"><span className="search-mark" aria-hidden="true">/</span><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar clube, cidade ou estado" aria-label="Buscar clube, cidade ou estado" /><kbd>⌘ K</kbd></div><div className="filter-row" role="group" aria-label="Filtros de clubes">{(["all", 1, 2, 3] as const).map((value) => <button key={value} className={division === value ? "filter-button is-active" : "filter-button"} aria-pressed={division === value} onClick={() => setDivision(value)}>{value === "all" ? "Todos" : `Série ${value === 1 ? "A" : value === 2 ? "B" : "C"}`}</button>)}</div><div className="letter-filter" aria-label="Filtrar por letra">{letters.map((value) => <button key={value} className={letter === value ? "is-active" : ""} aria-pressed={letter === value} aria-label={value === "all" ? "Todas as letras" : `Letra ${value}`} onClick={() => setLetter(value)}>{value === "all" ? "#" : value}</button>)}</div><div className="club-results" aria-busy={loading}>{loading ? Array.from({ length: 8 }, (_, index) => <span className="club-skeleton" key={index} />) : clubs.length === 0 ? <EmptyState icon="users" title="Nenhum clube encontrado" text="Tente outro nome, estado ou remova um filtro." /> : clubs.map((club) => <button className={selected?.id === club.id ? "club-choice is-selected" : "club-choice"} key={club.id} aria-label={club.name} aria-pressed={selected?.id === club.id} onClick={() => selectClub(club.id)} disabled={busy}><span className={`club-crest crest--${club.division}`}><span>{abbr(club.name)}</span></span><span className="club-choice__copy"><strong>{club.name}</strong><small>{club.state} · {divisionLabel(club.division)}</small></span><Icon name="arrow" /></button>)}</div><div className="selected-club-bar">{locked ? <span className="muted">Sua carreira já está vinculada a um clube. Abra o arquivo salvo — este save não troca de time.</span> : selected ? <div className="selected-club-copy"><span className={`club-crest crest--${selected.division}`}><span>{abbr(selected.name)}</span></span><span><small>PROJETO SELECIONADO</small><strong>{selected.name}</strong></span></div> : <span className="muted">Selecione um clube para continuar.</span>}<button className="primary-cta primary-cta--compact" type="button" disabled={!selected || busy || locked} onClick={() => selected && createCareer(selected.id)}>{locked ? "Carreira já vinculada" : "Assumir este clube"} <Icon name="arrow" /></button></div></section>;
 }
 
 function Fixtures({ save }: { save: { id: string; career: Career } }) { const c = myClub(save.career); return <div className="page"><PageIntro eyebrow="CALENDÁRIO" title="A temporada não espera." subtitle="Planeje cada rodada, casa ou fora." /><section className="panel table-panel"><div className="table-toolbar"><SectionHeading eyebrow="LIGA NACIONAL TECHFOOT" title="Todos os jogos" /><span className="table-count">{save.career.fixtures.filter((f) => f.played).length} jogados</span></div><div className="responsive-table"><table><thead><tr><th>RODADA</th><th>MANDANTE</th><th></th><th>VISITANTE</th><th>PLACAR</th><th>STATUS</th></tr></thead><tbody>{save.career.fixtures.map((fixture, index) => { const mine = fixture.homeId === c.id || fixture.awayId === c.id; return <tr className={mine ? "is-highlighted" : ""} key={index}><td><span className="round-tag">R{fixture.round}</span></td><td>{clubName(save.career, fixture.homeId)}</td><td className="versus-cell">×</td><td>{clubName(save.career, fixture.awayId)}</td><td className="score-cell">{fixture.result ? `${fixture.result.homeGoals} — ${fixture.result.awayGoals}` : "—"}</td><td><span className={`status-badge ${fixture.played ? "status-badge--done" : "status-badge--next"}`}>{fixture.played ? "ENCERRADO" : "AGENDADO"}</span></td></tr>; })}</tbody></table></div></section></div>; }
 
 function Cup({ save }: { save: { id: string; career: Career } }) { return <div className="page"><PageIntro eyebrow="COMPETIÇÃO NACIONAL" title="Uma copa, quatro noites." subtitle="Mata-mata, pressão e pênaltis." /><section className="panel bracket-panel"><div className="bracket-header"><SectionHeading eyebrow="COPA BRASIL TECHFOOT" title={save.career.cupChampion ? `Campeão: ${clubName(save.career, save.career.cupChampion)}` : "Chave em andamento"} /><span className="trophy-mark"><Icon name="trophy" /></span></div><div className="bracket">{save.career.cup.map((round, ri) => <div className="bracket-round" key={ri}><h4>{round[0]?.slot ?? "FASE"}</h4>{round.map((fixture, fi) => <div className={`bracket-match ${fixture.played ? "is-played" : ""}`} key={fi}><span>{clubName(save.career, fixture.homeId)}</span><b>{fixture.played ? fixture.homeGoals : "·"}</b><span>{clubName(save.career, fixture.awayId)}</span><b>{fixture.played ? fixture.awayGoals : "·"}</b>{fixture.penalties ? <small>PÊN {fixture.penalties.home} — {fixture.penalties.away}</small> : null}</div>)}</div>)}</div></section></div>; }
 
-function Market({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) { const c = myClub(save.career); const myIds = new Set(c.players.map((p) => p.id)); const buyable = save.career.market.filter((m) => !myIds.has(m.playerId)).slice(0, 18); return <div className="page"><PageIntro eyebrow="MERCADO DE TRANSFERÊNCIAS" title="Encontre a peça certa." subtitle="Talento custa dinheiro. O erro custa pontos." /><section className="panel market-summary"><div><span className="eyebrow">CAIXA DISPONÍVEL</span><strong>R$ {(save.career.finances / 1e6).toFixed(1)}M</strong></div><div><span className="eyebrow">ELENCO</span><strong>{c.players.length}<small>/22</small></strong></div><div><span className="eyebrow">LISTADOS</span><strong>{buyable.length}</strong></div></section><section className="market-grid">{buyable.map((entry) => { const owner = save.career.clubs.find((club) => club.id === entry.clubId); const player = owner?.players.find((item) => item.id === entry.playerId); if (!player) return null; return <article className="market-card" key={entry.playerId}><div className="market-card__top"><span className="player-avatar player-avatar--large">{initials(player.name)}</span><span className="market-price">R$ {(entry.price / 1e6).toFixed(1)}M</span></div><span className="eyebrow">{positionLabel(player.position)} · {owner?.name}</span><h3>{player.name}</h3><div className="market-card__stats"><span><b>{player.strength}</b><small>FORÇA</small></span><span><b>{player.contractGames}</b><small>JOGOS</small></span><span><b>{player.goals}</b><small>GOLS</small></span></div><button className="ghost-button ghost-button--full" disabled={busy} onClick={() => withSave(() => api.buy(save.id, player.id))}>Contratar <Icon name="arrow" /></button></article>; })}</section><section className="panel table-panel"><SectionHeading eyebrow="MEU ELENCO" title="Contratos e saídas" /><div className="responsive-table"><table><thead><tr><th>JOGADOR</th><th>POS</th><th>FORÇA</th><th>CONTRATO</th><th>GOLS</th><th></th></tr></thead><tbody>{c.players.map((player) => <tr key={player.id}><td><span className="table-player"><span className="player-avatar">{initials(player.name)}</span><strong>{player.name}</strong></span></td><td>{positionLabel(player.position)}</td><td className="score-cell">{player.strength}</td><td><span className={player.contractGames <= 5 ? "contract-warning" : ""}>{player.contractGames} jogos</span></td><td>{player.goals}</td><td><span className="action-pair"><button className="mini-button" disabled={busy} onClick={() => withSave(() => api.renew(save.id, player.id))}>Renovar</button><button className="mini-button mini-button--danger" disabled={busy} onClick={() => withSave(() => api.sell(save.id, player.id))}>Vender</button></span></td></tr>)}</tbody></table></div></section></div>; }
+function Market({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) { const c = myClub(save.career); const myIds = new Set(c.players.map((p) => p.id)); const buyable = save.career.market.filter((m) => !myIds.has(m.playerId)).slice(0, 18); return <div className="page"><PageIntro eyebrow="MERCADO DE TRANSFERÊNCIAS" title="Encontre a peça certa." subtitle="Talento custa dinheiro. O erro custa pontos." /><section className="panel market-summary"><div><span className="eyebrow">CAIXA DISPONÍVEL</span><strong>R$ {(save.career.finances / 1e6).toFixed(1)}M</strong></div><div><span className="eyebrow">ELENCO</span><strong>{c.players.length}<small>/22</small></strong></div><div><span className="eyebrow">LISTADOS</span><strong>{buyable.length}</strong></div></section><section className="market-grid">{buyable.length === 0 ? <EmptyState icon="market" title="Nenhum atleta listado" text="O mercado lista jogadores de outros clubes e agentes livres. Avance a rodada se a prateleira estiver vazia." /> : buyable.map((entry) => { const owner = save.career.clubs.find((club) => club.id === entry.clubId); const player = owner?.players.find((item) => item.id === entry.playerId); if (!player) return null; return <article className="market-card" key={entry.playerId}><div className="market-card__top"><span className="player-avatar player-avatar--large">{initials(player.name)}</span><span className="market-price">R$ {(entry.price / 1e6).toFixed(1)}M</span></div><span className="eyebrow">{positionLabel(player.position)} · {owner?.name}</span><h3>{player.name}</h3><div className="market-card__stats"><span><b>{player.strength}</b><small>FORÇA</small></span><span><b>{player.contractGames}</b><small>JOGOS</small></span><span><b>{player.goals}</b><small>GOLS</small></span></div><button className="ghost-button ghost-button--full" disabled={busy} onClick={() => withSave(() => api.buy(save.id, player.id))}>Contratar <Icon name="arrow" /></button></article>; })}</section><section className="panel table-panel"><SectionHeading eyebrow="MEU ELENCO" title="Contratos e saídas" /><div className="responsive-table"><table><thead><tr><th>JOGADOR</th><th>POS</th><th>FORÇA</th><th>CONTRATO</th><th>GOLS</th><th></th></tr></thead><tbody>{c.players.map((player) => <tr key={player.id}><td><span className="table-player"><span className="player-avatar">{initials(player.name)}</span><strong>{player.name}</strong></span></td><td>{positionLabel(player.position)}</td><td className="score-cell">{player.strength}</td><td><span className={player.contractGames <= 5 ? "contract-warning" : ""}>{player.contractGames} jogos</span></td><td>{player.goals}</td><td><span className="action-pair"><button className="mini-button" disabled={busy} onClick={() => withSave(() => api.renew(save.id, player.id))}>Renovar</button><button className="mini-button mini-button--danger" disabled={busy} onClick={() => withSave(() => api.sell(save.id, player.id))}>Vender</button></span></td></tr>)}</tbody></table></div></section></div>; }
 
 function Finance({ save }: { save: { id: string; career: Career } }) { const income = save.career.ledger.filter((entry) => entry.amount > 0).reduce((sum, entry) => sum + entry.amount, 0); const expenses = Math.abs(save.career.ledger.filter((entry) => entry.amount < 0).reduce((sum, entry) => sum + entry.amount, 0)); return <div className="page"><PageIntro eyebrow="GESTÃO FINANCEIRA" title="O caixa também joga." subtitle="Sustente o projeto para chegar ao fim da temporada." /><div className="finance-cards"><Metric icon="wallet" label="Caixa atual" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="saldo disponível" tone="gold" /><Metric icon="arrow" label="Receitas acumuladas" value={`R$ ${(income / 1e6).toFixed(1)}M`} detail="bilheteria e prêmios" tone="green" /><Metric icon="users" label="Despesas acumuladas" value={`R$ ${(expenses / 1e6).toFixed(1)}M`} detail="folha e contratações" tone="red" /></div><section className="panel table-panel"><SectionHeading eyebrow="EXTRATO DA CARREIRA" title="Movimentações recentes" /><div className="ledger">{save.career.ledger.map((entry, index) => <div className="ledger-row" key={`${entry.label}-${index}`}><span className="ledger-icon"><Icon name={entry.amount >= 0 ? "arrow" : "wallet"} /></span><span><strong>{entry.label}</strong><small>{entry.round ? `Rodada ${entry.round}` : "Início da carreira"}</small></span><b className={entry.amount >= 0 ? "amount-positive" : "amount-negative"}>{entry.amount >= 0 ? "+" : "−"} R$ {(Math.abs(entry.amount) / 1e3).toFixed(1)}k</b></div>)}</div></section></div>; }
 
@@ -340,10 +424,13 @@ function SectionHeading({ eyebrow, title, action }: { eyebrow: string; title: st
 function Metric({ icon, label, value, detail, tone = "neutral" }: { icon: IconName; label: string; value: string; detail: string; tone?: string }) { return <article className={`metric-card metric-card--${tone}`}><span className="metric-icon"><Icon name={icon} /></span><span className="eyebrow">{label}</span><strong>{value}</strong><small>{detail}</small></article>; }
 function Stat({ label, value }: { label: string; value: string }) { return <span className="stat"><strong>{value}</strong><small>{label}</small></span>; }
 function EmptyState({ icon, title, text }: { icon: IconName; title: string; text: string }) { return <div className="empty-state"><span><Icon name={icon} /></span><strong>{title}</strong><p>{text}</p></div>; }
-function Alert({ message }: { message: string }) { return <div className="alert" role="alert"><Icon name="arrow" />{message}</div>; }
-function Icon({ name }: { name: IconName }) { const paths: Record<IconName, ReactNode> = { home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" /></>, users: <><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3 2-5 6-5s6 2 6 5" /><path d="M16 5.5a3 3 0 0 1 0 5.8M17 15c2.5.3 4 2 4 5" /></>, calendar: <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 9h18" /></>, trophy: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0Z" /><path d="M7 6H3v2a4 4 0 0 0 4 4M17 6h4v2a4 4 0 0 1-4 4" /></>, market: <><path d="M4 7h16l-1 13H5L4 7Z" /><path d="M8 10V5a4 4 0 0 1 8 0v5" /></>, wallet: <><path d="M3 6a2 2 0 0 1 2-2h14v16H5a2 2 0 0 1-2-2V6Z" /><path d="M3 7h16M15 13h2" /></>, mail: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="m4 7 8 6 8-6" /></>, table: <><path d="M4 5h16v15H4zM4 10h16M10 5v15" /></>, play: <><path d="m8 5 11 7-11 7V5Z" /></>, arrow: <><path d="M5 12h13M13 6l6 6-6 6" /></> }; return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>; }
+function Alert({ message, onDismiss }: { message: string; onDismiss?: () => void }) { return <div className="alert" role="alert"><Icon name="arrow" /><span>{message}</span>{onDismiss ? <button type="button" className="alert-dismiss" onClick={onDismiss}>Fechar</button> : null}</div>; }
+function SkipLink() { return <a className="skip-link" href="#conteudo">Ir para o conteúdo</a>; }
+function BootScreen() { return <div className="app"><main className="panel boot-panel" id="conteudo" role="status"><div className="eyebrow">TECHFOOT</div><h2>Carregando sua sessão.</h2><p>Confirmando a conta neste servidor.</p></main></div>; }
+function readLang(): Lang { try { return localStorage.getItem("techfoot.lang") === "en" ? "en" : "pt"; } catch { return "pt"; } }
+function Icon({ name }: { name: IconName }) { const paths: Record<IconName, ReactNode> = { home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" /></>, users: <><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3 2-5 6-5s6 2 6 5" /><path d="M16 5.5a3 3 0 0 1 0 5.8M17 15c2.5.3 4 2 4 5" /></>, calendar: <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 9h18" /></>, trophy: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0Z" /><path d="M7 6H3v2a4 4 0 0 0 4 4M17 6h4v2a4 4 0 0 1-4 4" /></>, market: <><path d="M4 7h16l-1 13H5L4 7Z" /><path d="M8 10V5a4 4 0 0 1 8 0v5" /></>, wallet: <><path d="M3 6a2 2 0 0 1 2-2h14v16H5a2 2 0 0 1-2-2V6Z" /><path d="M3 7h16M15 13h2" /></>, mail: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="m4 7 8 6 8-6" /></>, table: <><path d="M4 5h16v15H4zM4 10h16M10 5v15" /></>, play: <><path d="m8 5 11 7-11 7V5Z" /></>, arrow: <><path d="M5 12h13M13 6l6 6-6 6" /></>, heart: <path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 4.6-7 9-7 9Z" />, more: <><circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="18" cy="12" r="1.2" fill="currentColor" stroke="none" /></> }; return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>; }
 
-function label(t: Tab, lang: Lang): string { if (t === "competitions") return "Competições"; if (t === "admin") return "Administração"; const labels: Record<Exclude<Tab, "competitions" | "admin">, TKey> = { home: "office", squad: "squad", fixtures: "fixtures", cup: "cup", market: "market", finance: "finance", inbox: "inbox", league: "table", report: "match" }; return tr(lang, labels[t as Exclude<Tab, "competitions" | "admin">]); }
+function label(t: Tab, lang: Lang): string { if (t === "competitions") return lang === "en" ? "Competitions" : "Competições"; if (t === "admin") return lang === "en" ? "Administration" : "Administração"; if (t === "support") return tr(lang, "support"); const labels: Record<Exclude<Tab, "competitions" | "admin" | "support">, TKey> = { home: "office", squad: "squad", fixtures: "fixtures", cup: "cup", market: "market", finance: "finance", inbox: "inbox", league: "table", report: "match" }; return tr(lang, labels[t as Exclude<Tab, "competitions" | "admin" | "support">]); }
 function myClub(career: Career): Club { return career.clubs.find((club) => club.id === career.clubId)!; }
 function clubName(career: Career, id?: string | null): string { return career.clubs.find((club) => club.id === id)?.name ?? id ?? "?"; }
 function divisionLabel(division: number): string { return division === 1 ? "Série A" : division === 2 ? "Série B" : "Série C"; }

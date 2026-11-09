@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   aiTransferPrice, applyResult, cupBracket, defaultStarters, doubleRoundRobin, emptyStandings,
-  evolvePlayer, leagueAverageStrength, MATCH_PRIZE, mulberry32, nextCupSlot, playerValue, prizeFor,
+  evolvePlayer, leagueAverageStrength, MATCH_PRIZE, mulberry32, nextCupSlot, outcomeForClub, playerValue, prizeFor,
   resolvePenalties, weeklyWages, simulateMatch,
   type AdminControls, type Club, type CupFixture, type Fixture, type InboxMessage,
   type Formation, type LedgerEntry, type MatchResult, type Player, type Standing, type SubstitutionPlan, type Tactic,
@@ -42,13 +42,20 @@ export type AdminPatch = Partial<Omit<AdminControls, "membershipCount" | "debt">
 export type MatchPlan = { starterIds: string[]; benchIds?: string[]; formation?: Formation; captainId?: string; substitutions?: SubstitutionPlan[] };
 
 const worldPath = fileURLToPath(new URL("../../../data/world/liga-br.json", import.meta.url));
+type WorldFile = { name: string; clubs: Club[]; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[] };
+let worldCache: WorldFile | null = null;
+
+function parseWorldFile(raw: string): WorldFile {
+  return JSON.parse(raw) as WorldFile;
+}
 
 export function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
 
-export function loadWorld(): { name: string; clubs: Club[]; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[] } {
-  return JSON.parse(readFileSync(worldPath, "utf8")) as { name: string; clubs: Club[]; stateCompetitions: { id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[] };
+export function loadWorld(): WorldFile {
+  if (!worldCache) worldCache = parseWorldFile(readFileSync(worldPath, "utf8"));
+  return structuredClone(worldCache);
 }
 
 function newMessage(career: Career, id: string, kind: string, title: string, body: string): void {
@@ -60,14 +67,26 @@ function clubMap(clubs: Club[]): Map<string, Club> {
   return new Map(clubs.map((c) => [c.id, c]));
 }
 
+function isAvailable(player: { injuredGames: number; suspendedGames: number }): boolean {
+  return player.injuredGames === 0 && player.suspendedGames === 0;
+}
+
 function repairPlan(career: Career): void {
   const club = clubMap(career.clubs).get(career.clubId);
   if (!club) return;
-  const valid = new Set(club.players.map((player) => player.id));
-  const starters = career.starterIds.filter((id) => valid.has(id) && !club.players.find((player) => player.id === id)?.injuredGames && !club.players.find((player) => player.id === id)?.suspendedGames);
+  const squad = new Map(club.players.map((player) => [player.id, player]));
+  const kept = career.starterIds.filter((id) => {
+    const player = squad.get(id);
+    return Boolean(player && isAvailable(player));
+  });
+  const filler = defaultStarters(club.players).filter((id) => !kept.includes(id));
+  const starters = [...kept, ...filler].slice(0, 11);
   career.starterIds = starters.length === 11 ? starters : defaultStarters(club.players);
-  career.benchIds = career.benchIds.filter((id) => valid.has(id) && !career.starterIds.includes(id)).slice(0, 5);
-  career.captainId = career.starterIds.includes(career.captainId) ? career.captainId : career.starterIds[0];
+  career.benchIds = career.benchIds.filter((id) => {
+    const player = squad.get(id);
+    return Boolean(player && isAvailable(player) && !career.starterIds.includes(id));
+  }).slice(0, 5);
+  career.captainId = career.starterIds.includes(career.captainId) ? career.captainId : career.starterIds[0] ?? "";
   career.substitutions = career.substitutions.filter((change) => career.starterIds.includes(change.playerOutId) && career.benchIds.includes(change.playerInId));
 }
 
@@ -129,14 +148,13 @@ export function normalizeCareer(career: Career): Career {
   return career;
 }
 
-export function createCareer(clubId: string, season = 2026): Career {
+export function createCareer(clubId: string, season = 2026, seed = Date.now() % 1_000_000_000): Career {
   const world = loadWorld();
   const club = world.clubs.find((c) => c.id === clubId);
   if (!club) throw httpError("Clube inválido", 400);
-  const clubs = structuredClone(world.clubs);
+  const clubs = world.clubs;
   const myClub = clubs.find((c) => c.id === clubId)!;
   const divisionClubIds = clubs.filter((c) => c.division === myClub.division).map((c) => c.id);
-  const seed = Date.now() % 1_000_000_000;
   const cupTeams = cupBracket(clubs.map((c) => c.id), seed);
   const starters = defaultStarters(myClub.players);
 
@@ -282,10 +300,13 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
   const roundRng = mulberry32(seed + career.round * 7919);
   const clubs = career.clubs;
   const map = clubMap(clubs);
+  const priorInjury = new Set<string>();
+  const priorSuspension = new Set<string>();
   for (const club of clubs) for (const player of club.players) {
-    player.injuredGames = Math.max(0, player.injuredGames - 1);
-    player.suspendedGames = Math.max(0, player.suspendedGames - 1);
+    if (player.injuredGames > 0) priorInjury.add(player.id);
+    if (player.suspendedGames > 0) priorSuspension.add(player.id);
   }
+  repairPlan(career);
   let userMatch: MatchResult | null = null;
   let homeCount = 0;
   let awayCount = 0;
@@ -308,9 +329,10 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
     table = applyResult(table, home.id, away.id, result.homeGoals, result.awayGoals);
     if (game.homeId === career.clubId || game.awayId === career.clubId) {
       userMatch = result;
-      if (result.homeGoals > result.awayGoals) wins += 1;
-      else if (result.homeGoals === result.awayGoals) draws += 1;
-      else losses += 1;
+      const outcome = outcomeForClub(career.clubId, result);
+      if (outcome === "win") wins += 1;
+      else if (outcome === "draw") draws += 1;
+      else if (outcome === "loss") losses += 1;
     }
   }
 
@@ -346,7 +368,7 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
   const avg = leagueAverageStrength(myClub.players);
   const rng = mulberry32(seed + 555);
   if (userMatch) {
-    const resultFor = userMatch.homeGoals > userMatch.awayGoals ? "win" : userMatch.homeGoals === userMatch.awayGoals ? "draw" : "loss";
+    const resultFor = outcomeForClub(career.clubId, userMatch) ?? "draw";
     const playedIds = new Set([...
       career.starterIds,
       ...userMatch.substitutions.filter((change) => change.teamId === myClub.id).map((change) => change.playerInId),
@@ -408,6 +430,11 @@ export function simulateRound(career: Career): { career: Career; userMatch: Matc
   const cupWindows = [4, 8, 12, 14];
   if (!career.cupFinalPlayed && cupWindows.includes(career.round)) {
     playCupPhase(career, seed);
+  }
+
+  for (const club of clubs) for (const player of club.players) {
+    if (priorInjury.has(player.id)) player.injuredGames = Math.max(0, player.injuredGames - 1);
+    if (priorSuspension.has(player.id)) player.suspendedGames = Math.max(0, player.suspendedGames - 1);
   }
 
   // Se a última rodada da liga chegou e a copa ainda não terminou, força todas as fases
@@ -506,7 +533,7 @@ function endOfSeason(career: Career): void {
   myClub.cash += prize;
   career.finances = myClub.cash;
   career.ledger = [{ label: `Premiação (${pos}º lugar)`, amount: prize }, ...career.ledger].slice(0, 40);
-  newMessage(career, `season-${career.season}`, "season", `Temporada ${career.season} encerrada`, `${myClub.name} terminou em ${pos}º lugar na ${career.division === 1 ? "Série A" : "Série B"}. Prêmio: R$ ${(prize / 1e6).toFixed(1)}M.${career.cupChampion ? ` Copa: ${clubMap(career.clubs).get(career.cupChampion)?.name} campeão.` : ""}`);
+  newMessage(career, `season-${career.season}`, "season", `Temporada ${career.season} encerrada`, `${myClub.name} terminou em ${pos}º lugar na ${divisionLabel(career.division)}. Prêmio: R$ ${(prize / 1e6).toFixed(1)}M.${career.cupChampion ? ` Copa: ${clubMap(career.clubs).get(career.cupChampion)?.name} campeão.` : ""}`);
 
   // promoção/rebaixamento — tabela por divisão (a do usuário é real; a outra é sintética)
   const all = career.clubs;
@@ -676,13 +703,14 @@ export function sellPlayer(career: Career, playerId: string): Career {
   if (idx < 0) throw httpError("Jogador não está no seu elenco", 404);
   if (myClub.players.length <= 11) throw httpError("O elenco precisa manter pelo menos 11 jogadores", 400);
   if (career.starterIds.includes(playerId)) throw httpError("Retire o jogador da escalação antes de vender", 400);
-  const p = myClub.players[idx];
+  const [p] = myClub.players.splice(idx, 1);
   const value = aiTransferPrice(p);
-  myClub.players.splice(idx, 1);
+  career.freeAgents.push(p);
   myClub.cash += value;
   career.finances = myClub.cash;
   career.ledger = [{ label: `Venda de ${p.name}`, amount: value }, ...career.ledger].slice(0, 40);
   newMessage(career, `sel-${playerId}`, "market", "Venda concluída", `${p.name} foi vendido por R$ ${(value / 1e6).toFixed(1)}M e virou agente livre.`);
+  repairPlan(career);
   refreshMarket(career);
   return career;
 }

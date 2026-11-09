@@ -14,8 +14,21 @@ model User {
   passwordHash String
   phone        String?
   googleId     String?
-  createdAt    DateTime @default(now())
-  saves        Save[]
+  createdAt      DateTime        @default(now())
+  saves          Save[]
+  supportIntents SupportIntent[]
+}
+
+model SupportIntent {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amountCents Int?
+  note        String?
+  status      String   @default("unverified")
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Save {

@@ -47,4 +47,15 @@ test("fluxo completo: registrar, criar carreira, simular rodada, ver tabela", as
   await page.getByRole("button", { name: "Administração" }).click();
   await expect(page.getByText("Você decide o orçamento.")).toBeVisible();
   await expect(page.getByText("10 CONTROLES")).toBeVisible();
+
+  await page.getByRole("button", { name: "Escritório" }).click();
+  await expect(page.getByText("VOCÊ · MANDANTE").or(page.getByText("VOCÊ · VISITANTE"))).toBeVisible();
+  await expect(page.getByText("EM 2 DIAS")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Apoio" }).click();
+  await expect(page.getByRole("heading", { name: "Apoio voluntário." })).toBeVisible();
+  await expect(page.getByLabel("Chave Pix")).toHaveText("futebadosparcas@outlook.com");
+  await expect(page.getByRole("button", { name: "Checkout indisponível" })).toBeDisabled();
+  await expect(page.getByText("não confirma Pix")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pagamento confirmado" })).toHaveCount(0);
 });

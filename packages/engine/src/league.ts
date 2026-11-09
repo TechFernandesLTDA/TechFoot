@@ -172,6 +172,20 @@ export function resolvePenalties(
   return { home, away, winner };
 }
 
+export function outcomeForClub(
+  clubId: string,
+  result: { homeId: string; awayId: string; homeGoals: number; awayGoals: number },
+): "win" | "draw" | "loss" | null {
+  const isHome = result.homeId === clubId;
+  const isAway = result.awayId === clubId;
+  if (!isHome && !isAway) return null;
+  const goalsFor = isHome ? result.homeGoals : result.awayGoals;
+  const goalsAgainst = isHome ? result.awayGoals : result.homeGoals;
+  if (goalsFor > goalsAgainst) return "win";
+  if (goalsFor === goalsAgainst) return "draw";
+  return "loss";
+}
+
 export function prizeFor(position: number): number {
   if (position === 1) return 2_000_000;
   if (position === 2) return 1_200_000;

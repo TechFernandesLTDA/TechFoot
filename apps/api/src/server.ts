@@ -1,4 +1,5 @@
-import Fastify, { type FastifyError } from "fastify";
+import { pathToFileURL } from "node:url";
+import Fastify, { type FastifyError, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
@@ -10,11 +11,28 @@ import {
   updateAdmin, normalizeCareer, setMatchPlan,
   type Career,
 } from "./career.ts";
+import { publicSupportStatus, verifyPaymentSignature } from "./support.ts";
 
-const app = Fastify({ logger: true });
+export async function buildApp() {
+const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : true });
 await app.register(cors, { origin: process.env.WEB_ORIGIN ?? true, credentials: true });
 await app.register(cookie);
 await app.register(rateLimit, { global: false });
+
+app.removeContentTypeParser("application/json");
+app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
+  const raw = typeof body === "string" ? body : body.toString("utf8");
+  (req as FastifyRequest & { rawBody?: string }).rawBody = raw;
+  if (!raw) {
+    done(null, undefined);
+    return;
+  }
+  try {
+    done(null, JSON.parse(raw));
+  } catch {
+    done(httpError("JSON inválido", 400), undefined);
+  }
+});
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -44,6 +62,11 @@ const adminSchema = z.object({
 });
 const loanSchema = z.object({ amount: z.number().int().positive() });
 const saveSchema = z.object({ clubId: z.string().min(1), name: z.string().trim().min(1).max(80).optional() });
+const supportIntentSchema = z.object({
+  amountCents: z.number().int().min(100).max(10_000_000).nullish(),
+  note: z.string().trim().max(140).nullish(),
+});
+const webhookSchema = z.object({ intentId: z.string().min(1) });
 
 type AuthedReq = { cookies: Record<string, string | undefined> };
 
@@ -98,6 +121,67 @@ app.get("/me", async (req) => {
   if (!user) throw httpError("Não autenticado", 401);
   return { id: user.id, email: user.email, name: user.name };
 });
+
+app.get("/health", async () => {
+  const support = publicSupportStatus();
+  return {
+    ok: true,
+    service: "techfoot-api",
+    payments: { providerConfigured: support.providerConfigured, pixBrCode: support.brCodeAvailable },
+  };
+});
+
+app.get("/support", async () => publicSupportStatus());
+
+app.get("/support/intents", async (req) => {
+  const intents = await prisma.supportIntent.findMany({ where: { userId: userIdFrom(req) }, orderBy: { createdAt: "desc" } });
+  return { intents: intents.map(serializeIntent), confirmed: false, unlocked: false };
+});
+
+app.post("/support/intents", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req) => {
+  const body = validate(supportIntentSchema, req.body ?? {});
+  const created = await prisma.supportIntent.create({
+    data: {
+      userId: userIdFrom(req),
+      amountCents: body.amountCents ?? null,
+      note: body.note?.trim() ? body.note.trim() : null,
+      status: "unverified",
+    },
+  });
+  return { intent: serializeIntent(created), confirmed: false, unlocked: false };
+});
+
+app.post("/support/webhooks/payment", async (req, reply) => {
+  const secret = process.env.PAYMENT_WEBHOOK_SECRET?.trim() ?? "";
+  if (!secret) return reply.code(503).send({ error: "Provedor de pagamento não configurado. Nenhum pagamento foi confirmado.", configured: false, unlocked: false });
+  const raw = (req as FastifyRequest & { rawBody?: string }).rawBody ?? "";
+  const signature = req.headers["x-techfoot-signature"];
+  if (!verifyPaymentSignature(raw, Array.isArray(signature) ? signature[0] : signature, secret)) {
+    return reply.code(401).send({ error: "Assinatura inválida. Pagamento não confirmado.", unlocked: false });
+  }
+  const body = validate(webhookSchema, req.body);
+  const intent = await prisma.supportIntent.findUnique({ where: { id: body.intentId } });
+  if (!intent) return reply.code(404).send({ error: "Intenção não encontrada", unlocked: false });
+  if (intent.status !== "verified") {
+    await prisma.supportIntent.update({ where: { id: intent.id }, data: { status: "verified" } });
+  }
+  return {
+    status: "verified",
+    unlocked: false,
+    message: "O provedor confirmou esta intenção. Nenhum recurso do jogo foi liberado.",
+  };
+});
+
+function serializeIntent(intent: { id: string; amountCents: number | null; note: string | null; status: string; createdAt: Date }) {
+  return {
+    id: intent.id,
+    amountCents: intent.amountCents,
+    note: intent.note,
+    status: intent.status === "verified" ? "verified" as const : "unverified" as const,
+    createdAt: intent.createdAt.toISOString(),
+    unlocksFeatures: false as const,
+  };
+}
 
 app.get("/world", async () => {
   const world = loadWorld();
@@ -233,5 +317,17 @@ app.post("/saves/:id/inbox/:msgId/read", async (req, reply) => {
   return { inbox: career.inbox };
 });
 
-const port = Number(process.env.PORT ?? 3333);
-await app.listen({ port, host: "0.0.0.0" });
+  return app;
+}
+
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  return import.meta.url === pathToFileURL(entry).href;
+}
+
+if (isDirectRun()) {
+  const app = await buildApp();
+  const port = Number(process.env.PORT ?? 3333);
+  await app.listen({ port, host: "0.0.0.0" });
+}

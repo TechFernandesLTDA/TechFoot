@@ -1,14 +1,16 @@
 {
   "name": "techfoot",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Jogo singleplayer de gerenciamento de futebol no browser — Tech Fernandes LTDA",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "test": "npm run test -w @techfoot/engine",
+    "test": "npm run test -w @techfoot/engine && npm run test -w @techfoot/api",
+    "typecheck": "tsc --noEmit -p packages/engine/tsconfig.json && tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
+    "build": "npm run build -w @techfoot/web",
     "dev:api": "npm run dev -w @techfoot/api",
     "dev:web": "npm run dev -w @techfoot/web",
     "db:push": "npm run db:push -w @techfoot/api",

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "db:push": "prisma db push",
-    "start": "tsx src/server.ts"
+    "start": "tsx src/server.ts",
+    "postinstall": "DATABASE_URL=${DATABASE_URL:-file:./dev.db} prisma generate",
+    "test": "DATABASE_URL=file:./test.db prisma db push --skip-generate && DATABASE_URL=file:./test.db NODE_ENV=test tsx --test --test-concurrency=1 test/*.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -14,6 +16,7 @@
     "@fastify/rate-limit": "^11.2.0",
     "@prisma/client": "^6.3.1",
     "@techfoot/engine": "*",
+    "@techfoot/shared": "*",
     "fastify": "^5.2.1",
     "zod": "^4.5.4"
   },

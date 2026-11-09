@@ -8,7 +8,7 @@ export {
 } from "./strength.ts";
 export { simulateMatch, type Side } from "./simulate.ts";
 export {
-  applyResult, cupBracket, doubleRoundRobin, emptyStandings, nextCupSlot, prizeFor, resolveCup, resolvePenalties, sortTable,
+  applyResult, cupBracket, doubleRoundRobin, emptyStandings, nextCupSlot, outcomeForClub, prizeFor, resolveCup, resolvePenalties, sortTable,
 } from "./league.ts";
 export {
   aiTransferPrice, computeFinances, evolvePlayer, leagueAverageStrength, MATCH_PRIZE, playerValue, ticketRevenue,

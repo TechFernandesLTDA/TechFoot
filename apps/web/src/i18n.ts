@@ -19,10 +19,11 @@ const dict = {
     cup: "Copa",
     market: "Mercado",
     finance: "Financeiro",
-    inbox: "Inbox",
+    inbox: "Mensagens",
     table: "Tabela",
     match: "Jogo",
     simulate: "Simular rodada",
+    support: "Apoio",
   },
   en: {
     appName: "TECHFOOT",
@@ -42,10 +43,11 @@ const dict = {
     cup: "Cup",
     market: "Market",
     finance: "Finance",
-    inbox: "Inbox",
+    inbox: "Messages",
     table: "Standings",
     match: "Match",
     simulate: "Simulate round",
+    support: "Support",
   },
 } as const;
 

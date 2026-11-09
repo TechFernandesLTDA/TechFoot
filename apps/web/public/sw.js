@@ -13,9 +13,13 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+const NETWORK_ONLY = ["/auth", "/me", "/saves", "/support", "/health", "/world", "/competitions"];
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
-  if (request.method !== "GET" || !request.url.startsWith(self.location.origin)) return;
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (NETWORK_ONLY.some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`))) return;
   event.respondWith(
     caches.match(request).then((cached) => {
       const fetched = fetch(request)

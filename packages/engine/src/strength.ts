@@ -9,7 +9,7 @@ export function startersOf(players: Player[], starterIds: string[]): Player[] {
   return starterIds
     .map((id) => byId.get(id))
     .filter((p): p is Player => Boolean(p))
-    .filter((p) => p.injuredGames === 0 && p.suspendedGames === 0 && p.reds === 0)
+    .filter((p) => p.injuredGames === 0 && p.suspendedGames === 0)
     .slice(0, 11);
 }
 

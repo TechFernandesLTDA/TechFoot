@@ -1,4 +1,6 @@
-const json = (r: Response) => r.json();
+export function isOfflineError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("Servidor indisponível");
+}
 
 export type Tactic = "offensive" | "balanced" | "defensive";
 export type User = { id: string; email: string; name: string };
@@ -21,8 +23,18 @@ export type AdminControls = {
 async function req<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string> ?? {}) };
   if (init?.method && init.method !== "GET" && init.body) headers["Content-Type"] = "application/json";
-  const res = await fetch(path, { credentials: "include", ...init, headers });
-  const data = await json(res);
+  let res: Response;
+  try {
+    res = await fetch(path, { credentials: "include", ...init, headers });
+  } catch {
+    throw new Error("Servidor indisponível. Confira se a API está no ar e tente de novo.");
+  }
+  let data: { error?: string } = {};
+  try {
+    data = await res.json();
+  } catch {
+    if (!res.ok) throw new Error(`Erro ${res.status}`);
+  }
   if (!res.ok) throw new Error(data.error ?? "Erro");
   return data as T;
 }
@@ -47,6 +59,30 @@ export const api = {
   sell: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/market/sell`, { method: "POST", body: JSON.stringify({ playerId }) }),
   renew: (id: string, playerId: string) => req<{ career: Career }>(`/saves/${id}/renew`, { method: "POST", body: JSON.stringify({ playerId }) }),
   markRead: (id: string, msgId: string) => req<{ inbox: InboxMessage[] }>(`/saves/${id}/inbox/${msgId}/read`, { method: "POST" }),
+  support: () => req<SupportInfo>("/support"),
+  supportIntents: () => req<{ intents: SupportIntent[]; confirmed: false; unlocked: false }>("/support/intents"),
+  createSupportIntent: (amountCents?: number, note?: string) => req<{ intent: SupportIntent; confirmed: false; unlocked: false }>("/support/intents", { method: "POST", body: JSON.stringify({ amountCents, note }) }),
+};
+
+export type SupportInfo = {
+  pixKey: string;
+  pixKeyType: string;
+  brCode: string | null;
+  brCodeAvailable: boolean;
+  brCodeUnavailableReason: string | null;
+  premiumCheckout: "unavailable";
+  providerConfigured: boolean;
+  donationsUnlockFeatures: false;
+  notice: string;
+};
+
+export type SupportIntent = {
+  id: string;
+  amountCents: number | null;
+  note: string | null;
+  status: "unverified" | "verified";
+  createdAt: string;
+  unlocksFeatures: false;
 };
 
 export type Position = "GK" | "DF" | "MF" | "FW";

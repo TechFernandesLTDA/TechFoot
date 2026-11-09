@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  cupBracket, defaultStarters, doubleRoundRobin, evolvePlayer, effectivePowers, playerValue, resolvePenalties, simulateMatch,
+  cupBracket, defaultStarters, doubleRoundRobin, evolvePlayer, effectivePowers, outcomeForClub, playerValue, resolvePenalties, simulateMatch,
   startersOf, type Club, type Player, type Position, type Tactic,
 } from "../src/index.ts";
 
@@ -114,6 +114,23 @@ describe("engine", () => {
     const ids = Array.from({ length: 60 }, (_, index) => `club-${index}`);
     assert.deepEqual(cupBracket(ids, 99), cupBracket(ids, 99));
     assert.equal(cupBracket(ids, 99)[0].length, 30);
+  });
+
+  it("judges a result from the club that is playing, including the away side", () => {
+    const result = { homeId: "home", awayId: "away", homeGoals: 0, awayGoals: 2 };
+    assert.equal(outcomeForClub("away", result), "win");
+    assert.equal(outcomeForClub("home", result), "loss");
+    assert.equal(outcomeForClub("away", { ...result, homeGoals: 1, awayGoals: 1 }), "draw");
+    assert.equal(outcomeForClub("other", result), null);
+  });
+
+  it("lets a player return after a red card once the suspension is over", () => {
+    const punished = player("red", "FW", 20);
+    punished.reds = 1;
+    punished.suspendedGames = 0;
+    const players = [...squad("h", 20).slice(0, 10), punished];
+    const active = startersOf(players, players.map((item) => item.id));
+    assert.ok(active.some((item) => item.id === "red"));
   });
 
   it("applies a planned substitution during the match", () => {
