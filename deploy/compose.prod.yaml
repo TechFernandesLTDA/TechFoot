@@ -4,7 +4,7 @@ name: techfoot
 
 services:
   api:
-    image: tf-techfoot-api:20261109-v2
+    image: tf-techfoot-api:20261109-v3
     platform: linux/arm64
     build:
       context: ..
@@ -34,7 +34,7 @@ services:
       start_period: 40s
 
   web:
-    image: tf-techfoot-web:20261109-v2
+    image: tf-techfoot-web:20261109-v3
     platform: linux/arm64
     build:
       context: ..

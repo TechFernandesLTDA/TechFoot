@@ -1,8 +1,9 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { api, isOfflineError, type AdminControls, type Career, type Club, type Formation, type MatchResult, type Player, type Tactic, type User } from "./api";
+import { api, isOfflineError, type AdminControls, type Career, type Club, type Formation, type LivePayload, type MatchResult, type Player, type Tactic, type User } from "./api";
 import { tr, type Lang, type TKey } from "./i18n";
 import { SupportPanel } from "./support";
 import { AccountDialog } from "./account";
+import { LiveMatch } from "./live";
 import { legalPath, LegalScreen } from "./legal";
 
 type Tab = "home" | "squad" | "fixtures" | "cup" | "market" | "finance" | "inbox" | "league" | "competitions" | "admin" | "report" | "support";
@@ -19,8 +20,9 @@ export function App() {
   const [worldStats, setWorldStats] = useState({ clubs: 0, divisions: 0, players: 0, stateCompetitions: 0 });
   const [stateCompetitions, setStateCompetitions] = useState<{ id: string; name: string; state: string; season: number; format: string; stages: string[]; qualification: string }[]>([]);
   const [worldLoading, setWorldLoading] = useState(true);
-  const [save, setSave] = useState<{ id: string; name: string; career: Career } | null>(null);
+  const [save, setSave] = useState<{ id: string; name: string; career: Career; live?: { id: string; minute: number; period: string; status: string; score: number[]; opponent: string; club: string } | null } | null>(null);
   const [tab, setTab] = useState<Tab>("home");
+  const [playing, setPlaying] = useState<LivePayload | null>(null);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [lang, setLangValue] = useState<Lang>(() => readLang());
   const [busy, setBusy] = useState(false);
@@ -153,6 +155,34 @@ export function App() {
     }
   }
 
+  async function restOfMatch() {
+    if (!save?.live) return;
+    setBusy(true);
+    try {
+      const current = await api.live(save.id);
+      const done = await api.finish(current.live.id, current.live.version, true);
+      setSave({ ...save, career: done.career, live: null });
+      setTab("report");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startLive() {
+    if (!save) return;
+    setError("");
+    setBusy(true);
+    try {
+      setPlaying(await api.matchday(save.id));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function simulate() {
     if (!save) return;
     setError("");
@@ -268,23 +298,26 @@ export function App() {
           <div className="sidebar__season"><span>{lang === "pt" ? "TEMPORADA" : "SEASON"}</span><strong>{save.career.season}</strong><small>Rodada {save.career.round} de {roundCount(save.career)}</small><div className="progress" role="progressbar" aria-valuemin={1} aria-valuemax={roundCount(save.career)} aria-valuenow={save.career.round} aria-label="Rodada da temporada"><i style={{ width: `${Math.min(100, (save.career.round / roundCount(save.career)) * 100)}%` }} /></div></div>
         </aside>
         <main className="main-content" id="conteudo" aria-busy={busy}>
-          <div className="mobile-tabs" aria-label="Navegação móvel">
+          {!playing && <div className="mobile-tabs" aria-label="Navegação móvel">
             {mobilePrimary.map((item) => <button key={item.tab} type="button" className={tab === item.tab ? "is-active" : ""} aria-current={tab === item.tab ? "page" : undefined} onClick={() => { setTab(item.tab); setMoreOpen(false); }}><Icon name={item.icon} /><span>{label(item.tab, lang)}</span>{item.tab === "inbox" && unread > 0 ? <b className="tab-badge">{unread}</b> : null}</button>)}
             <button type="button" className={moreTabs.some((item) => item.tab === tab) ? "is-active" : ""} aria-expanded={moreOpen} aria-controls="more-menu" onClick={() => setMoreOpen((open) => !open)}><Icon name="more" /><span>Mais</span></button>
-          </div>
+          </div>}
           {moreOpen ? <div className="more-sheet" id="more-menu" role="dialog" aria-modal="true" aria-label="Mais seções"><button type="button" className="more-sheet__backdrop" aria-label="Fechar menu" onClick={() => setMoreOpen(false)} /><div className="more-sheet__panel">{moreTabs.map((item) => <button key={item.tab} type="button" className={tab === item.tab ? "is-active" : ""} onClick={() => { setTab(item.tab); setMoreOpen(false); }}><Icon name={item.icon} /><span>{label(item.tab, lang)}</span></button>)}</div></div> : null}
-          {tab === "home" && <Home save={save} onSetTab={setTab} onSimulate={simulate} busy={busy} />}
-          {tab === "squad" && <><Squad save={save} withSave={withSave} busy={busy} /><SquadPlanBar save={save} withSave={withSave} busy={busy} /><PlayerInsights career={save.career} /></>}
-          {tab === "fixtures" && <Fixtures save={save} />}
-          {tab === "cup" && <Cup save={save} />}
-          {tab === "market" && <Market save={save} withSave={withSave} busy={busy} />}
-          {tab === "finance" && <Finance save={save} />}
-          {tab === "inbox" && <Inbox save={save} updateCareer={updateCareer} setError={setError} />}
-          {tab === "league" && <League save={save} />}
-          {tab === "competitions" && <Competitions save={save} stateCompetitions={stateCompetitions} />}
-          {tab === "admin" && <Administration save={save} withSave={withSave} busy={busy} />}
-          {tab === "report" && <Report save={save} />}
-          {tab === "support" && <SupportPanel lang={lang} authed />}
+          {!playing && save.live && (save.live.status === "live" || save.live.status === "halftime") ? <p className="stoppage-board" data-testid="live-banner">Jogo em andamento {save.live.minute}' {save.live.club} {save.live.score[0]}x{save.live.score[1]} <button type="button" onClick={() => void startLive()}>Continuar</button> <button type="button" onClick={() => void restOfMatch()}>Simular restante</button></p> : null}
+          {playing ? <LiveMatch initial={playing} onCareer={(career) => setSave((current) => current ? { ...current, career } : current)} onClose={() => setPlaying(null)} /> : null}
+          {!playing && <SeasonReview career={save.career} />}
+          {tab === "home" && !playing && <Home save={save} onSetTab={setTab} onSimulate={simulate} onLive={() => void startLive()} busy={busy} />}
+          {!playing && tab === "squad" && <><Squad save={save} withSave={withSave} busy={busy} /><SquadPlanBar save={save} withSave={withSave} busy={busy} /><PlayerInsights career={save.career} /></>}
+          {!playing && tab === "fixtures" && <Fixtures save={save} />}
+          {!playing && tab === "cup" && <Cup save={save} />}
+          {!playing && tab === "market" && <Market save={save} withSave={withSave} busy={busy} />}
+          {!playing && tab === "finance" && <Finance save={save} />}
+          {!playing && tab === "inbox" && <Inbox save={save} updateCareer={updateCareer} setError={setError} />}
+          {!playing && tab === "league" && <League save={save} />}
+          {!playing && tab === "competitions" && <Competitions save={save} stateCompetitions={stateCompetitions} />}
+          {!playing && tab === "admin" && <Administration save={save} withSave={withSave} busy={busy} />}
+          {!playing && tab === "report" && <Report save={save} />}
+          {!playing && tab === "support" && <SupportPanel lang={lang} authed />}
         </main>
       </div>
       <SiteFooter />
@@ -318,7 +351,7 @@ function SiteFooter() {
   return <footer className="site-footer"><a href="/privacidade">Política de Privacidade</a><a href="/termos">Termos de Uso</a></footer>;
 }
 
-function Home({ save, onSetTab, onSimulate, busy }: { save: { id: string; career: Career }; onSetTab: (tab: Tab) => void; onSimulate: () => void; busy: boolean }) {
+function Home({ save, onSetTab, onSimulate, onLive, busy }: { save: { id: string; career: Career }; onSetTab: (tab: Tab) => void; onSimulate: () => void; onLive: () => void; busy: boolean }) {
   const c = myClub(save.career);
   const next = save.career.fixtures.find((fixture) => !fixture.played && (fixture.homeId === c.id || fixture.awayId === c.id));
   const homeName = next ? clubName(save.career, next.homeId) : c.name;
@@ -326,7 +359,7 @@ function Home({ save, onSetTab, onSimulate, busy }: { save: { id: string; career
   const userIsHome = next ? next.homeId === c.id : true;
   const opponent = next ? (userIsHome ? awayName : homeName) : "Calendário encerrado";
   const recent = save.career.fixtures.filter((fixture) => fixture.played && fixture.result && (fixture.homeId === c.id || fixture.awayId === c.id)).slice(-5);
-  return <div className="page page--home"><PageIntro eyebrow="CENTRO DE COMANDO" title={`Bom dia, ${c.name}.`} subtitle="Tudo que importa para sua próxima decisão está aqui." action={<button className="primary-cta primary-cta--compact" onClick={onSimulate} disabled={busy}><Icon name="play" />{busy ? "SIMULANDO..." : "SIMULAR RODADA"}</button>} /><div className="metric-grid"><Metric icon="table" label="Posição na liga" value={`${positionOf(save.career)}º`} detail={`${save.career.table.find((row) => row.clubId === c.id)?.points ?? 0} pontos`} tone="gold" /><Metric icon="wallet" label="Caixa disponível" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="balanço atual" /><Metric icon="users" label="Moral do clube" value={`${c.morale}`} detail={mood(c.morale)} tone="green" /><Metric icon="trophy" label="Próximo adversário" value={abbreviated(opponent)} detail={next ? `Rodada ${next.round}` : "fim da temporada"} /></div><SeasonStrip career={save.career} /><div className="home-grid"><section className="panel next-match"><div className="panel-kicker">PRÓXIMO COMPROMISSO <span>RODADA {next?.round ?? "—"}</span></div><div className="matchup" aria-label="Próximo jogo"><div className="match-team"><span className={`club-crest club-crest--large crest--${next ? save.career.clubs.find((club) => club.id === next.homeId)?.division ?? 1 : c.division}`}><span>{abbr(homeName)}</span></span><strong>{homeName}</strong><small>{next && userIsHome ? "VOCÊ · MANDANTE" : "MANDANTE"}</small></div><div className="match-vs"><span>VS</span><small>{next ? `RODADA ${next.round}` : "—"}</small></div><div className="match-team match-team--away"><span className={`club-crest club-crest--large crest--${next ? save.career.clubs.find((club) => club.id === next.awayId)?.division ?? 2 : 2}`}><span>{abbr(awayName)}</span></span><strong>{awayName}</strong><small>{next && !userIsHome ? "VOCÊ · VISITANTE" : "VISITANTE"}</small></div></div><div className="match-actions"><button className="ghost-button" onClick={() => onSetTab("squad")}>Ajustar escalação <Icon name="arrow" /></button><button className="ghost-button" onClick={() => onSetTab("fixtures")}>Ver calendário <Icon name="arrow" /></button></div></section><section className="panel form-panel"><SectionHeading eyebrow="MOMENTO" title="Últimos resultados" /><div className="form-strip">{recent.length === 0 ? <span className="muted">Sua temporada começa agora.</span> : recent.map((fixture, index) => <span className={`form-pill ${resultClass(fixture.result!, c.id)}`} key={index}>{resultLetter(fixture.result!, c.id)}</span>)}</div><p className="panel-note">{recent.length ? "A forma recente influencia a confiança do vestiário." : "Uma boa estreia muda o humor do clube."}</p></section><section className="panel news-panel"><SectionHeading eyebrow="MURAL DO CLUBE" title="Últimas notícias" action={<button className="text-button" onClick={() => onSetTab("inbox")}>Ver inbox <Icon name="arrow" /></button>} />{save.career.news.slice(0, 4).map((news, index) => <div className="news-row" key={`${news}-${index}`}><span className={`news-dot news-dot--${index % 3}`} /><div><strong>{news}</strong><small>Atualização do centro de comando</small></div><span className="news-time">agora</span></div>)}</section><section className="panel table-panel"><SectionHeading eyebrow={divisionLabel(c.division).toUpperCase()} title="Classificação" action={<button className="text-button" onClick={() => onSetTab("league")}>Tabela completa <Icon name="arrow" /></button>} /><MiniTable save={save} /></section></div></div>;
+  return <div className="page page--home"><PageIntro eyebrow="CENTRO DE COMANDO" title={`Bom dia, ${c.name}.`} subtitle="Tudo que importa para sua próxima decisão está aqui." action={<><button className="primary-cta primary-cta--compact" data-testid="play-live" onClick={onLive} disabled={busy}><Icon name="play" />Ir para o jogo</button><button className="ghost-button" onClick={onSimulate} disabled={busy}>{busy ? "SIMULANDO..." : "Simular rodada"}</button></>} /><div className="metric-grid"><Metric icon="table" label="Posição na liga" value={`${positionOf(save.career)}º`} detail={`${save.career.table.find((row) => row.clubId === c.id)?.points ?? 0} pontos`} tone="gold" /><Metric icon="wallet" label="Caixa disponível" value={`R$ ${(save.career.finances / 1e6).toFixed(1)}M`} detail="balanço atual" /><Metric icon="users" label="Moral do clube" value={`${c.morale}`} detail={mood(c.morale)} tone="green" /><Metric icon="trophy" label="Próximo adversário" value={abbreviated(opponent)} detail={next ? `Rodada ${next.round}` : "fim da temporada"} /></div><SeasonStrip career={save.career} /><div className="home-grid"><section className="panel next-match"><div className="panel-kicker">PRÓXIMO COMPROMISSO <span>RODADA {next?.round ?? "—"}</span></div><div className="matchup" aria-label="Próximo jogo"><div className="match-team"><span className={`club-crest club-crest--large crest--${next ? save.career.clubs.find((club) => club.id === next.homeId)?.division ?? 1 : c.division}`}><span>{abbr(homeName)}</span></span><strong>{homeName}</strong><small>{next && userIsHome ? "VOCÊ · MANDANTE" : "MANDANTE"}</small></div><div className="match-vs"><span>VS</span><small>{next ? `RODADA ${next.round}` : "—"}</small></div><div className="match-team match-team--away"><span className={`club-crest club-crest--large crest--${next ? save.career.clubs.find((club) => club.id === next.awayId)?.division ?? 2 : 2}`}><span>{abbr(awayName)}</span></span><strong>{awayName}</strong><small>{next && !userIsHome ? "VOCÊ · VISITANTE" : "VISITANTE"}</small></div></div><div className="match-actions"><button className="ghost-button" onClick={() => onSetTab("squad")}>Ajustar escalação <Icon name="arrow" /></button><button className="ghost-button" onClick={() => onSetTab("fixtures")}>Ver calendário <Icon name="arrow" /></button></div></section><section className="panel form-panel"><SectionHeading eyebrow="MOMENTO" title="Últimos resultados" /><div className="form-strip">{recent.length === 0 ? <span className="muted">Sua temporada começa agora.</span> : recent.map((fixture, index) => <span className={`form-pill ${resultClass(fixture.result!, c.id)}`} key={index}>{resultLetter(fixture.result!, c.id)}</span>)}</div><p className="panel-note">{recent.length ? "A forma recente influencia a confiança do vestiário." : "Uma boa estreia muda o humor do clube."}</p></section><section className="panel news-panel"><SectionHeading eyebrow="MURAL DO CLUBE" title="Últimas notícias" action={<button className="text-button" onClick={() => onSetTab("inbox")}>Ver inbox <Icon name="arrow" /></button>} />{save.career.news.slice(0, 4).map((news, index) => <div className="news-row" key={`${news}-${index}`}><span className={`news-dot news-dot--${index % 3}`} /><div><strong>{news}</strong><small>Atualização do centro de comando</small></div><span className="news-time">agora</span></div>)}</section><section className="panel table-panel"><SectionHeading eyebrow={divisionLabel(c.division).toUpperCase()} title="Classificação" action={<button className="text-button" onClick={() => onSetTab("league")}>Tabela completa <Icon name="arrow" /></button>} /><MiniTable save={save} /></section></div></div>;
 }
 
 function Squad({ save, withSave, busy }: { save: { id: string; career: Career }; withSave: (fn: () => Promise<{ career: Career }>) => void; busy: boolean }) {
@@ -341,7 +374,7 @@ function Squad({ save, withSave, busy }: { save: { id: string; career: Career };
     if (!player || player.injuredGames > 0 || player.suspendedGames > 0) return;
     setSel([...sel, id]);
   }
-  return <div className="page"><PageIntro eyebrow="GESTÃO DO ELENCO" title="O time começa aqui." subtitle={`${sel.length}/11 titulares selecionados · tática define o risco.`} action={<button className="primary-cta primary-cta--compact" disabled={busy || sel.length !== 11} onClick={() => withSave(() => api.lineup(save.id, sel))}>Salvar escalação <Icon name="arrow" /></button>} /><div className="squad-layout"><section className="panel pitch-panel"><div className="panel-kicker">CAMPO TÁTICO <span>{TACTIC_LABEL[save.career.tactic].toUpperCase()}</span></div><div className="tactic-select"><span>Instrução</span><select value={save.career.tactic} onChange={(e) => withSave(() => api.tactic(save.id, e.target.value as Tactic))}><option value="balanced">Equilibrado</option><option value="offensive">Ofensivo</option><option value="defensive">Defensivo</option></select></div><div className="pitch"><div className="pitch-line pitch-line--top" /><div className="pitch-circle" /><div className="pitch-box pitch-box--top" /><div className="pitch-box pitch-box--bottom" /><div className="pitch-players pitch-players--attack">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "FW").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--mid">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "MF").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--def">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "DF").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--keeper">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "GK").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div></div><div className="pitch-legend"><span><i className="legend-dot legend-dot--first" />Titular</span><span><i className="legend-dot legend-dot--second" />Posição</span></div></section><section className="panel squad-list-panel"><div className="panel-kicker">PLANTEL PRINCIPAL <span>{c.players.length} ATLETAS</span></div><div className="squad-filter"><span>ESCALAÇÃO ATUAL</span><strong>{sel.length === 11 ? "PRONTA PARA JOGAR" : "INCOMPLETA"}</strong></div><div className="player-list">{players.map((player) => { const selected = sel.includes(player.id); return <button className={`player-row ${selected ? "is-selected" : ""}`} key={player.id} onClick={() => toggle(player.id)} disabled={player.injuredGames > 0 || player.suspendedGames > 0}><span className="player-number">{positionLabel(player.position)}</span><span className="player-avatar">{initials(player.name)}</span><span className="player-main"><strong>{player.name}</strong><small>{selected ? "TITULAR" : "RESERVA"} · {condition(player)}</small></span><span className="player-rating">{player.strength}<small>FOR</small></span><span className={`status-dot ${selected ? "status-dot--active" : ""}`} /></button>; })}</div></section></div></div>;
+  return <div className="page"><PageIntro eyebrow="GESTÃO DO ELENCO" title="O time começa aqui." subtitle={`${sel.length}/11 titulares selecionados · tática define o risco.`} action={<><button className="primary-cta primary-cta--compact" disabled={busy || sel.length !== 11} onClick={() => withSave(() => api.lineup(save.id, sel))}>Salvar escalação <Icon name="arrow" /></button><button type="button" className="ghost-button" onClick={() => setSel(bestEleven(c.players))}>Escalar melhor time</button><button type="button" className="ghost-button" onClick={() => setSel(replaceUnavailable(c.players, sel))}>Substituir indisponíveis</button></>} /><div className="squad-layout"><section className="panel pitch-panel"><div className="panel-kicker">CAMPO TÁTICO <span>{TACTIC_LABEL[save.career.tactic].toUpperCase()}</span></div><div className="tactic-select"><span>Instrução</span><select value={save.career.tactic} onChange={(e) => withSave(() => api.tactic(save.id, e.target.value as Tactic))}><option value="balanced">Equilibrado</option><option value="offensive">Ofensivo</option><option value="defensive">Defensivo</option></select></div><div className="pitch"><div className="pitch-line pitch-line--top" /><div className="pitch-circle" /><div className="pitch-box pitch-box--top" /><div className="pitch-box pitch-box--bottom" /><div className="pitch-players pitch-players--attack">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "FW").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--mid">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "MF").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--def">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "DF").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div><div className="pitch-players pitch-players--keeper">{sel.filter((id) => c.players.find((p) => p.id === id)?.position === "GK").map((id) => <PlayerToken key={id} player={c.players.find((p) => p.id === id)!} />)}</div></div><div className="pitch-legend"><span><i className="legend-dot legend-dot--first" />Titular</span><span><i className="legend-dot legend-dot--second" />Posição</span></div></section><section className="panel squad-list-panel"><div className="panel-kicker">PLANTEL PRINCIPAL <span>{c.players.length} ATLETAS</span></div><div className="squad-filter"><span>ESCALAÇÃO ATUAL</span><strong>{sel.length === 11 ? "PRONTA PARA JOGAR" : "INCOMPLETA"}</strong></div><div className="player-list">{players.map((player) => { const selected = sel.includes(player.id); return <button className={`player-row ${selected ? "is-selected" : ""}`} key={player.id} onClick={() => toggle(player.id)} disabled={!selected && (player.injuredGames > 0 || player.suspendedGames > 0)}><span className="player-number">{positionLabel(player.position)}</span><span className="player-avatar">{initials(player.name)}</span><span className="player-main"><strong>{player.name}</strong><small>{selected ? "TITULAR" : "RESERVA"} · {condition(player)} · {player.fitness}% · contrato {player.contractGames}</small><i className="fit-bar"><b style={{ width: `${player.fitness}%` }} /></i></span><span className="player-rating">{player.strength}<small>FOR</small></span><span className={`status-dot ${selected ? "status-dot--active" : ""}`} /></button>; })}</div></section></div></div>;
 }
 
 function PlayerInsights({ career }: { career: Career }) {
@@ -368,7 +401,7 @@ function SquadPlanBar({ save, withSave, busy }: { save: { id: string; career: Ca
     const playerInId = bench.find((id) => !substitutions.some((change) => change.playerInId === id));
     if (playerOutId && playerInId && substitutions.length < 5) setSubstitutions([...substitutions, { minute: 60 + substitutions.length * 5, playerOutId, playerInId }]);
   };
-  return <section className="panel plan-panel"><div className="plan-heading"><div><div className="eyebrow">PLANO DE JOGO</div><h3>Banco, capitão e substituições</h3></div><button className="primary-cta primary-cta--compact" disabled={busy} onClick={() => withSave(() => api.lineup(save.id, { starterIds: save.career.starterIds, benchIds: bench, formation, captainId: captain, substitutions }))}>Salvar plano <Icon name="arrow" /></button></div><div className="plan-grid"><label className="field field--dark"><span>Formação</span><select value={formation} onChange={(event) => setFormation(event.target.value as Formation)}><option>4-3-3</option><option>4-4-2</option><option>3-5-2</option><option>5-3-2</option><option>4-2-3-1</option></select></label><label className="field field--dark"><span>Capitão</span><select value={captain} onChange={(event) => setCaptain(event.target.value)}>{club.players.filter((player) => save.career.starterIds.includes(player.id)).map((player) => <option value={player.id} key={player.id}>{player.name} · liderança {player.skills.leadership}</option>)}</select></label><div className="bench-control"><span className="eyebrow">RESERVAS ({bench.length}/5)</span><div className="bench-list">{reservePool.map((player) => <button className={bench.includes(player.id) ? "bench-player is-selected" : "bench-player"} key={player.id} onClick={() => setBench(bench.includes(player.id) ? bench.filter((id) => id !== player.id) : bench.length < 5 ? [...bench, player.id] : bench)} disabled={player.injuredGames > 0 || player.suspendedGames > 0}><span className="player-avatar">{initials(player.name)}</span><span>{player.name}<small>{positionLabel(player.position)} · {player.strength} FOR</small></span></button>)}</div></div><div className="sub-control"><span className="eyebrow">SUBSTITUIÇÕES PROGRAMADAS</span><div className="sub-list">{substitutions.map((change) => <span className="sub-chip" key={`${change.playerOutId}-${change.minute}`}>{change.minute}' {lastName(playerShortObject(club, change.playerOutId))} → {lastName(playerShortObject(club, change.playerInId))}</span>)}</div><button className="ghost-button" onClick={addSubstitution} disabled={bench.length === 0 || substitutions.length >= 5}>+ Adicionar troca</button></div></div></section>;
+  return <section className="panel plan-panel"><div className="plan-heading"><div><div className="eyebrow">PLANO DE JOGO</div><h3>Banco, capitão e substituições</h3></div><button className="primary-cta primary-cta--compact" disabled={busy} onClick={() => withSave(() => api.lineup(save.id, { starterIds: save.career.starterIds, benchIds: bench, formation, captainId: captain, substitutions }))}>Salvar plano <Icon name="arrow" /></button></div><div className="plan-grid"><label className="field field--dark"><span>Formação</span><select value={formation} onChange={(event) => setFormation(event.target.value as Formation)}><option>4-3-3</option><option>4-4-2</option><option>3-5-2</option><option>5-3-2</option><option>4-2-3-1</option></select></label><label className="field field--dark"><span>Capitão</span><select value={captain} onChange={(event) => setCaptain(event.target.value)}>{club.players.filter((player) => save.career.starterIds.includes(player.id)).map((player) => <option value={player.id} key={player.id}>{player.name} · liderança {player.skills.leadership}</option>)}</select></label><div className="bench-control"><span className="eyebrow">RESERVAS ({bench.length}/5)</span><div className="bench-list">{reservePool.map((player) => <button className={bench.includes(player.id) ? "bench-player is-selected" : "bench-player"} key={player.id} onClick={() => setBench(bench.includes(player.id) ? bench.filter((id) => id !== player.id) : bench.length < 5 ? [...bench, player.id] : bench)} disabled={!bench.includes(player.id) && (player.injuredGames > 0 || player.suspendedGames > 0)}><span className="player-avatar">{initials(player.name)}</span><span>{player.name}<small>{positionLabel(player.position)} · {player.strength} FOR</small></span></button>)}</div></div><div className="sub-control"><span className="eyebrow">SUBSTITUIÇÕES PROGRAMADAS</span><div className="sub-list">{substitutions.map((change) => <span className="sub-chip" key={`${change.playerOutId}-${change.minute}`}>{change.minute}' {lastName(playerShortObject(club, change.playerOutId))} → {lastName(playerShortObject(club, change.playerInId))}</span>)}</div><button className="ghost-button" onClick={addSubstitution} disabled={bench.length === 0 || substitutions.length >= 5}>+ Adicionar troca</button></div></div></section>;
 }
 
 function playerShortObject(club: Club, id: string): string { return club.players.find((player) => player.id === id)?.name ?? id; }
@@ -457,8 +490,31 @@ function formatControlValue(key: keyof AdminControls, value: number): string { i
 
 function Report({ save }: { save: { id: string; career: Career } }) { const match = save.career.lastRoundEvents; if (!match) return <div className="page"><EmptyState icon="play" title="Nenhum jogo simulado" text="Simule uma rodada no escritório para ver o relatório." /></div>; return <div className="page"><PageIntro eyebrow="RELATÓRIO DE PARTIDA" title="O jogo terminou. A análise começa." subtitle="Cada lance fica registrado para sua próxima decisão." /><section className="panel report-score"><div className="report-side"><span className="club-crest club-crest--large crest--1"><span>{abbr(clubName(save.career, match.homeId))}</span></span><strong>{clubName(save.career, match.homeId)}</strong></div><div className="report-result"><span>{match.homeGoals}</span><b>—</b><span>{match.awayGoals}</span><small>FINAL</small></div><div className="report-side"><span className="club-crest club-crest--large crest--2"><span>{abbr(clubName(save.career, match.awayId))}</span></span><strong>{clubName(save.career, match.awayId)}</strong></div><div className="report-meta"><span>CHUTES <b>{match.shots.home} × {match.shots.away}</b></span><span>CARTÕES <b>{match.cards.home.yellow + match.cards.home.red} × {match.cards.away.yellow + match.cards.away.red}</b></span><span>LESÕES <b>{match.injuries.length}</b></span></div></section><section className="panel timeline-panel"><SectionHeading eyebrow="NARRAÇÃO AO VIVO" title="Linha do tempo" /><div className="timeline">{match.events.map((event, index) => <div className={`timeline-event timeline-event--${event.kind}`} key={`${event.minute}-${index}`}><span className="timeline-minute">{event.minute}'</span><span className="timeline-marker"><Icon name={event.kind === "goal" ? "trophy" : event.kind === "whistle" ? "play" : "arrow"} /></span><div><strong>{event.text}</strong><small>{clubName(save.career, event.teamId)}{event.playerId ? ` · ${playerShort(save.career, event.playerId)}` : ""}</small></div></div>)}</div></section></div>; }
 
-function MiniTable({ save, expanded = false }: { save: { id: string; career: Career }; expanded?: boolean }) { const rows = expanded ? save.career.table : save.career.table.slice(0, 5); return <div className="mini-table"><div className="mini-table__head"><span>#</span><span>CLUBE</span><span>P</span><span>J</span><span>SG</span></div>{rows.map((row, index) => <div className={`mini-table__row ${row.clubId === save.career.clubId ? "is-current" : ""}`} key={row.clubId}><b>{String(index + 1).padStart(2, "0")}</b><span><i className={`club-dot club-dot--${index % 4}`} />{clubName(save.career, row.clubId)}</span><strong>{row.points}</strong><span>{row.played}</span><span>{row.gf - row.ga > 0 ? "+" : ""}{row.gf - row.ga}</span></div>)}</div>; }
+function zoneOf(division: number, position: number): string {
+  if (division === 1 && position <= 4) return "zone-lib";
+  if (division === 1 && position <= 6) return "zone-lib-pre";
+  if (division === 1 && position <= 12) return "zone-sula";
+  if (division === 1 && position >= 17) return "zone-down";
+  if (position <= 4) return "zone-up";
+  if (division === 2 && position >= 17) return "zone-down";
+  return "";
+}
+function rateOf(points: number, played: number): string { return played ? ((points / (played * 3)) * 100).toFixed(1) : "—"; }
+function MiniTable({ save, expanded = false }: { save: { id: string; career: Career }; expanded?: boolean }) {
+  const rows = expanded ? save.career.table : save.career.table.slice(0, 8);
+  const division = myClub(save.career).division;
+  return <div className="mini-table"><div className="mini-table__head"><span>#</span><span>CLUBE</span><span>P</span><span>J</span><span>V</span><span>E</span><span>D</span><span>GP</span><span>GC</span><span>SG</span><span>%</span><span>FORMA</span></div>{rows.map((row, index) => <div className={`mini-table__row ${zoneOf(division, index + 1)} ${row.clubId === save.career.clubId ? "is-current" : ""}`} key={row.clubId}><b>{index + 1}</b><span>{clubName(save.career, row.clubId)}</span><strong>{row.points}</strong><span>{row.played}</span><span>{row.won}</span><span>{row.drawn}</span><span>{row.lost}</span><span>{row.gf}</span><span>{row.ga}</span><span>{row.gf - row.ga}</span><span>{rateOf(row.points, row.played)}</span><span className="form-strip">{(row.form ?? []).map((mark, markIndex) => <i key={markIndex} className={`form-pill form-pill--${mark}`}>{mark === "W" ? "V" : mark === "D" ? "E" : "D"}</i>)}</span></div>)}{expanded ? <div className="zone-legend"><span className="zone-lib">Libertadores</span><span className="zone-lib-pre">Pré-Libertadores</span><span className="zone-sula">Sul-Americana</span><span className="zone-up">Acesso</span><span className="zone-down">Rebaixamento</span></div> : null}</div>;
+}
 
+function SeasonReview({ career }: { career: Career }) {
+  const latest = career.history[career.history.length - 1];
+  const key = latest ? `techfoot.review.${career.clubId}.${latest.season}` : "";
+  const [open, setOpen] = useState(() => Boolean(latest && !localStorage.getItem(key)));
+  if (!latest || !open) return null;
+  const champion = latest.championId === career.clubId;
+  function close() { localStorage.setItem(key, "1"); setOpen(false); }
+  return <div className="account-dialog" data-testid="season-review" role="dialog" aria-modal="true" aria-label="Revisão da temporada"><button type="button" className="account-dialog__backdrop" aria-label="Fechar revisão" onClick={close} /><div className="account-dialog__panel"><p className="eyebrow">{champion ? "CAMPEÃO" : "REVISÃO DA TEMPORADA"}</p><h2>{latest.season}</h2>{champion ? <p data-testid="trophy">Troféu do Campeonato Brasileiro</p> : null}<p>{latest.position}º lugar · {latest.points} pontos</p><ul>{(latest.bestXi ?? []).map((player) => <li key={player.name}>{player.position} · {player.name}</li>)}</ul><ul>{(latest.qualified ?? []).slice(0, 8).map((row) => <li key={row.clubId}>{clubName(career, row.clubId)} · {row.zone}</li>)}</ul><button type="button" onClick={close}>Começar a pré-temporada</button></div></div>;
+}
 function PageIntro({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle: string; action?: ReactNode }) { return <div className="page-intro"><div><div className="eyebrow">{eyebrow}</div><h2>{title}</h2><p>{subtitle}</p></div>{action}</div>; }
 function SectionHeading({ eyebrow, title, action }: { eyebrow: string; title: string; action?: ReactNode }) { return <div className="section-heading"><div><div className="eyebrow">{eyebrow}</div><h3>{title}</h3></div>{action}</div>; }
 function Metric({ icon, label, value, detail, tone = "neutral" }: { icon: IconName; label: string; value: string; detail: string; tone?: string }) { return <article className={`metric-card metric-card--${tone}`}><span className="metric-icon"><Icon name={icon} /></span><span className="eyebrow">{label}</span><strong>{value}</strong><small>{detail}</small></article>; }
@@ -485,6 +541,28 @@ function normalizeSearch(value: string): string { return value.normalize("NFD").
 function initials(value: string): string { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function lastName(value: string): string { return value.split(/\s+/).at(-1) ?? value; }
 function positionLabel(position: string): string { return position === "GK" ? "GOL" : position; }
+
+function bestEleven(players: Player[]): string[] {
+  const order = ["GK", "DF", "DF", "DF", "DF", "MF", "MF", "MF", "FW", "FW", "FW"];
+  const used = new Set<string>();
+  const ids: string[] = [];
+  const available = players.filter((player) => player.injuredGames === 0 && player.suspendedGames === 0).sort((a, b) => b.strength - a.strength);
+  for (const position of order) {
+    const next = available.find((player) => player.position === position && !used.has(player.id));
+    if (!next) continue;
+    used.add(next.id);
+    ids.push(next.id);
+  }
+  return ids.slice(0, 11);
+}
+function replaceUnavailable(players: Player[], starterIds: string[]): string[] {
+  const kept = starterIds.filter((id) => {
+    const player = players.find((item) => item.id === id);
+    return player && player.injuredGames === 0 && player.suspendedGames === 0;
+  });
+  const fill = bestEleven(players).filter((id) => !kept.includes(id));
+  return [...kept, ...fill].slice(0, 11);
+}
 function condition(player: Player): string { return player.injuredGames > 0 ? `Lesionado · ${player.injuredGames}j` : player.suspendedGames > 0 ? `Suspenso · ${player.suspendedGames}j` : "Disponível"; }
 function mood(value: number): string { return value >= 80 ? "vestiário confiante" : value >= 60 ? "ambiente estável" : "atenção ao ambiente"; }
 function positionOf(career: Career): number { const index = career.table.findIndex((row) => row.clubId === career.clubId); return index >= 0 ? index + 1 : career.table.length; }

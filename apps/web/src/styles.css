@@ -148,8 +148,8 @@ svg { width: 18px; height: 18px; flex: 0 0 auto; }
 .club-dot--1 { background: var(--green); }
 .club-dot--2 { background: var(--blue); }
 .club-dot--3 { background: var(--red); }
-.mini-table { display: grid; gap: 0; }
-.mini-table__head, .mini-table__row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 32px 32px 38px; align-items: center; gap: 8px; min-height: 39px; border-bottom: 1px solid var(--line); font-size: 0.64rem; }
+.mini-table { display: grid; gap: 0; overflow-x: auto; }
+.mini-table__head, .mini-table__row { display: grid; grid-template-columns: 28px minmax(120px, 1.4fr) repeat(8, 32px) 46px 92px; align-items: center; gap: 8px; min-width: 720px; min-height: 39px; border-bottom: 1px solid var(--line); font-size: 0.64rem; }
 .mini-table__head { min-height: 28px; color: var(--paper-dim); font-size: 0.55rem; letter-spacing: 0.1em; }
 .mini-table__row > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini-table__row.is-current { border-left: 2px solid var(--gold); background: rgba(240, 189, 98, 0.1); }
@@ -628,6 +628,46 @@ input[type="range"] { width: 100%; height: 5px; accent-color: var(--gold); curso
 .account-form { display: grid; gap: 10px; margin: 16px 0; }
 .export-json { max-height: 180px; overflow: auto; white-space: pre-wrap; color: var(--paper-dim); font-size: 0.58rem; }
 .ghost-button--danger { border-color: var(--red); color: #ffd1c5; }
+
+.fit-bar { display: block; height: 4px; margin-top: 4px; background: rgba(255,255,255,0.12); }
+.fit-bar b { display: block; height: 100%; background: #73d59d; }
+.zone-lib { box-shadow: inset 3px 0 #1f7a4d; }
+.zone-lib-pre { box-shadow: inset 3px 0 #2f6f9f; }
+.zone-sula { box-shadow: inset 3px 0 #d4880c; }
+.zone-up { box-shadow: inset 3px 0 #1f7a4d; }
+.zone-down { box-shadow: inset 3px 0 #a33b3b; }
+.zone-legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; font-size: 0.68rem; }
+.zone-legend span { padding-left: 8px; }
+.live-shell { display: grid; gap: 12px; }
+.live-board { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 12px; background: #10241c; }
+.live-score { display: flex; align-items: baseline; justify-content: center; gap: 10px; text-align: center; white-space: nowrap; }
+.live-score strong { font-size: 2rem; }
+.live-side { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-shell aside button, .sub-sheet button { display: flex; width: 100%; justify-content: space-between; margin: 2px 0; }
+.live-crest { display: inline-block; width: 28px; height: 34px; margin-right: 8px; clip-path: polygon(10% 0, 90% 0, 100% 82%, 50% 100%, 0 82%); vertical-align: middle; }
+.momentum { height: 8px; background: #2a2118; }
+.momentum i { display: block; height: 100%; background: linear-gradient(90deg, #a33b3b, #d8c7a1, #1f7a4d); }
+.stoppage-board, .goal-flash { padding: 10px 14px; background: #f4ead5; color: #14261f; font-weight: 700; }
+.goal-flash { font-size: 1.4rem; }
+.live-layout { display: grid; grid-template-columns: 240px 1fr 260px; gap: 12px; }
+.live-controls, .talks, .live-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.commentary { max-height: 360px; overflow: auto; }
+.half-time, .full-time, .sub-sheet { padding: 16px; border: 1px solid var(--line-strong); background: #163028; }
+.live-tabs { display: none; }
+.form-strip { display: flex; gap: 2px; }
+.form-pill { display: inline-grid; width: 14px; height: 14px; place-items: center; font-size: 0.5rem; }
+.form-pill--W { background: #1f7a4d; }
+.form-pill--D { background: #d4880c; }
+.form-pill--L { background: #a33b3b; }
+.live-table .mini-table__row { min-width: 0; grid-template-columns: 24px minmax(0, 1fr) 28px; }
+.league-layout { grid-template-columns: minmax(0, 1fr); }
+.table-panel { min-width: 0; }
+@media (max-width: 800px) {
+  .live-layout { grid-template-columns: 1fr; }
+  .live-layout aside, .live-layout section { display: none; }
+  .live-layout aside.is-active, .live-layout section.is-active { display: block; }
+  .live-tabs { display: flex; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }

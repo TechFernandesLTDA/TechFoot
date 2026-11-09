@@ -13,7 +13,7 @@ Arquivos:
 | `session_secret.example` | Mesmo placeholder, se o segredo for um Docker secret |
 | `backup-sqlite.sh` | `sqlite3 .backup` para o restic achar um arquivo consistente |
 
-Tags desta leva: `tf-techfoot-api:20261109-v2` e `tf-techfoot-web:20261109-v2`. A próxima leva troca a data e o sufixo nos dois lugares: o `image:` do compose e o `docker build`. Não reutilize a tag de uma imagem que já rodou.
+Tags desta leva: `tf-techfoot-api:20261109-v3` e `tf-techfoot-web:20261109-v3`. A próxima leva troca a data e o sufixo nos dois lugares: o `image:` do compose e o `docker build`. Não reutilize a tag de uma imagem que já rodou.
 
 ## O que a imagem assume
 
@@ -30,16 +30,16 @@ No servidor (já é arm64) ou numa máquina com buildx e QEMU:
 
 ```bash
 docker buildx build --platform linux/arm64 \
-  -t tf-techfoot-api:20261109-v2 --target api --load .
+  -t tf-techfoot-api:20261109-v3 --target api --load .
 docker buildx build --platform linux/arm64 \
-  -t tf-techfoot-web:20261109-v2 --target web --load .
+  -t tf-techfoot-web:20261109-v3 --target web --load .
 ```
 
 Confira a arquitetura antes de subir:
 
 ```bash
-docker image inspect tf-techfoot-api:20261109-v2 --format '{{.Architecture}}'
-docker image inspect tf-techfoot-web:20261109-v2 --format '{{.Architecture}}'
+docker image inspect tf-techfoot-api:20261109-v3 --format '{{.Architecture}}'
+docker image inspect tf-techfoot-web:20261109-v3 --format '{{.Architecture}}'
 ```
 
 Os dois precisam responder `arm64`. Guarde a tag anterior no disco até o smoke da nova passar.
@@ -100,6 +100,18 @@ O nginx manda HSTS, CSP (`default-src 'self'`), `nosniff`, referrer e Permission
 `/robots.txt` e `/sitemap.xml` são arquivos estáticos do nginx. A política e os termos estão em `/privacidade` e `/termos`. O contato `futebadosparcas@outlook.com` está marcado como placeholder. CNPJ e endereço continuam por preencher.
 
 Imagens: `tf-techfoot-api:20261109-v2` e `tf-techfoot-web:20261109-v2`, build arm64 no host. Não faça push para um registry daqui.
+
+## Leva 20261109-v3
+
+Faça o backup do SQLite antes. O arranque continua com `npx prisma db push --skip-generate`. Não rode `prisma migrate deploy`: o banco de produção nasceu com `db push`. O arquivo `apps/api/prisma/migrations/20261109143000_live_match/migration.sql` só documenta o `CREATE TABLE LiveMatch`. O `db push` cria essa tabela e o índice único em `saveId`. Saves antigos não ganham linha até o primeiro "Ir para o jogo".
+
+Calendário de um save já em andamento: resultados já jogados ficam como estão. Rodadas ainda não jogadas são refeitas no turno/returno. Se o calendário antigo repetia o mesmo adversário, algumas rodadas futuras podem sair com menos jogos, porque o par já usou as duas partidas. A tabela é reconstruída a partir dos resultados gravados (pontos, cartões e forma). Não apague o save para "consertar" a tabela.
+
+Contratos: na primeira carga depois desta leva, elenco com `contractGames` entre 1 e 30 é espalhado de 19 a 114 jogos, uma vez (`contractsReady`). Contrato zerado continua saindo. Aviso no inbox em 6 e em 3 jogos. Todo clube completa o elenco com base até 16. A forma física da rodada passa a cair para quem jogou e a subir para o elenco inteiro.
+
+Copa do Brasil: 1ª fase em jogo único; oitavas em diante são ida e volta, sem gol fora. Empate no agregado vai para pênaltis. A copa tem data de quarta, entre as rodadas, e entra como jogo ao vivo próprio.
+
+Imagens: `tf-techfoot-api:20261109-v3` e `tf-techfoot-web:20261109-v3`. Copie `deploy/compose.prod.yaml` para `/srv/techfernandes/techfoot/compose.prod.yaml` e suba com `sudo docker compose`. O `compose.yaml` da raiz escuta só em loopback e não entra no servidor. Não faça push das imagens para um registry daqui.
 
 A API só entra em `techfoot-internal`. A web entra em `tf-edge` e em `techfoot-internal`. O Traefik precisa do provider Docker (não só do provider Swarm) para ler os labels deste container. O router `techfoot` escuta só o entrypoint `https`, com TLS e o serviço `techfoot` na porta 8080. O router `techfoot-http` escuta o entrypoint `http` e usa o middleware `techfoot-redirect`, definido nestes labels, para responder 301 para `https`. TLS não fica no entrypoint `http`.
 
