@@ -34,12 +34,27 @@ model SupportIntent {
 }
 
 model Save {
-  id        String   @id @default(cuid())
+  id        String     @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   payload   String
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  liveMatch LiveMatch?
+}
+
+model LiveMatch {
+  id         String   @id @default(cuid())
+  saveId     String   @unique
+  save       Save     @relation(fields: [saveId], references: [id], onDelete: Cascade)
+  kind       String
+  round      Int
+  state      String
+  otherGames String
+  status     String
+  version    Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

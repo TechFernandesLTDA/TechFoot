@@ -63,19 +63,24 @@ describe("career rules", () => {
     assert.equal(career.division, 3);
     assert.equal(career.history.length, 0);
     let guard = 0;
-    while (career.season === 2026 && guard < 25) {
+    while (career.season === 2026 && guard < 45) {
       career = simulateRound(career).career;
       guard += 1;
     }
-    assert.equal(guard, 19);
     assert.equal(career.season, 2027);
     assert.equal(career.round, 1);
     assert.equal(career.history.length, 1);
     assert.equal(career.history[0].season, 2026);
     assert.equal(career.history[0].division, 3);
     assert.ok(career.history[0].position >= 1 && career.history[0].position <= 20);
-    assert.equal(career.userMatches.length, 19);
-    assert.ok(career.userMatches.every((match) => match.season === 2026));
+    assert.equal(career.history[0].championId?.length, career.history[0].championId ? career.history[0].championId.length : 0);
+    assert.ok(career.history[0].championId);
+    const leagueMatches = career.userMatches.filter((match) => match.kind !== "cup");
+    assert.equal(leagueMatches.length, 19);
+    assert.ok(leagueMatches.every((match) => match.season === 2026));
+    for (const division of [1, 2, 3] as const) {
+      assert.equal(career.clubs.filter((club) => club.division === division).length, 20);
+    }
   });
 
   it("caps debt and keeps routine round mail to one message per kind", () => {

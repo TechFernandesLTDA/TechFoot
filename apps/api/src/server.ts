@@ -11,6 +11,7 @@ import {
   updateAdmin, normalizeCareer, setMatchPlan,
   type Career,
 } from "./career.ts";
+import { advanceLive, commandLive, finishLive, liveSummary, readLive, resumeLive, startMatchday } from "./live-match.ts";
 import { publicSupportStatus, verifyPaymentSignature } from "./support.ts";
 import { assertReadyToListen, loadLocalEnv, sessionCookie, startupIssues, trustProxyOption } from "./config.ts";
 
@@ -102,6 +103,19 @@ const supportIntentSchema = z.object({
   note: z.string().trim().max(140).nullish(),
 });
 const webhookSchema = z.object({ intentId: z.string().min(1) });
+const advanceSchema = z.object({ toMinute: z.number().int().min(0).max(200), version: z.number().int() });
+const liveCommandSchema = z.object({
+  atMinute: z.number().int().min(0).max(120),
+  version: z.number().int(),
+  cmd: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("sub"), outId: z.string().min(1), inId: z.string().min(1) }),
+    z.object({ type: z.literal("tactic"), tactic: z.enum(["offensive", "balanced", "defensive"]) }),
+    z.object({ type: z.literal("formation"), formation: z.enum(["4-3-3", "4-4-2", "3-5-2", "5-3-2", "4-2-3-1"]) }),
+    z.object({ type: z.literal("talk"), talk: z.enum(["calma", "cobrar", "motivar"]) }),
+    z.object({ type: z.literal("resume") }),
+  ]),
+});
+const versionSchema = z.object({ version: z.number().int() });
 
 type AuthedReq = { cookies: Record<string, string | undefined> };
 
@@ -358,7 +372,49 @@ async function loadSave(req: AuthedReq & { params: { id: string } }) {
 
 app.get("/saves/:id", async (req) => {
   const { save, career } = await loadSave(req as never);
-  return { id: save.id, name: save.name, career };
+  const live = await liveSummary(save.id, await userIdFrom(req as never));
+  return { id: save.id, name: save.name, career, live };
+});
+
+app.get("/saves/:id/live", async (req) => {
+  const userId = await userIdFrom(req as never);
+  return readLive((req.params as { id: string }).id, userId);
+});
+
+app.post("/saves/:id/matchday", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
+  const userId = await userIdFrom(req as never);
+  return startMatchday((req.params as { id: string }).id, userId);
+});
+
+async function liveForUser(req: AuthedReq & { params: { id: string } }) {
+  const userId = await userIdFrom(req);
+  const live = await prisma.liveMatch.findFirst({ where: { id: req.params.id, save: { userId } } });
+  if (!live) throw httpError("Jogo não encontrado", 404);
+  return { live, userId };
+}
+
+app.post("/live/:id/advance", { config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (req) => {
+  const { live, userId } = await liveForUser(req as never);
+  const body = validate(advanceSchema, req.body);
+  return advanceLive(live.saveId, userId, body.toMinute, body.version);
+});
+
+app.post("/live/:id/command", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req) => {
+  const { live, userId } = await liveForUser(req as never);
+  const body = validate(liveCommandSchema, req.body);
+  return commandLive(live.saveId, userId, body.atMinute, body.cmd, body.version);
+});
+
+app.post("/live/:id/resume", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (req) => {
+  const { live, userId } = await liveForUser(req as never);
+  const body = validate(versionSchema, req.body);
+  return resumeLive(live.saveId, userId, body.version);
+});
+
+app.post("/live/:id/finish", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
+  const { live, userId } = await liveForUser(req as never);
+  const body = validate(z.object({ version: z.number().int().optional(), rest: z.boolean().optional() }), req.body ?? {});
+  return finishLive(live.saveId, userId, body.rest === true);
 });
 
 app.put("/saves/:id/lineup", async (req) => {
@@ -395,6 +451,8 @@ app.post("/saves/:id/admin/loan", async (req) => {
 
 app.post("/saves/:id/simulate-round", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req) => {
   const { save, career } = await loadSave(req as never);
+  const blocking = await prisma.liveMatch.findUnique({ where: { saveId: save.id } });
+  if (blocking && (blocking.status === "live" || blocking.status === "halftime")) throw httpError("Há um jogo em andamento", 409);
   const { career: next, userMatch } = simulateRound(career);
   await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(next) } });
   return { career: next, userMatch };
