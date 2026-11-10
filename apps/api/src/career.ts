@@ -4,7 +4,8 @@ import {
   aggregateWinner, aiTransferPrice, applyResult, copaFirstRound, cupMidweekDate, defaultStarters, doubleRoundRobin, emptyStandings,
   evolvePlayer, leagueAverageStrength, leagueRoundDate, MATCH_PRIZE, mulberry32, outcomeForClub, playerValue, prizeFor,
   repairRemainingFixtures, resolvePenalties, sortTable, tableZone, weeklyWages, simulateMatch,
-  type AdminControls, type Club, type CupFixture, type Fixture, type InboxMessage,
+  cupIsDue, cupPhaseAnchor, cupSlotAfter, nextCommitment,
+  type AdminControls, type Club, type CupFixture, type Fixture, type InboxKind, type InboxMessage,
   type Formation, type LedgerEntry, type MatchResult, type Player, type Standing, type SubstitutionPlan, type Tactic,
 } from "@techfoot/engine";
 
@@ -89,7 +90,7 @@ export function loadWorld(): WorldFile {
   return structuredClone(worldCache);
 }
 
-function newMessage(career: Career, id: string, kind: string, title: string, body: string): void {
+function newMessage(career: Career, id: string, kind: InboxKind, title: string, body: string): void {
   career.inbox = [{ id, kind, title, body, read: false }, ...career.inbox];
   career.news = [title, ...career.news].slice(0, 30);
 }
@@ -235,6 +236,7 @@ export function normalizeCareer(career: Career): Career {
   career.history ??= [];
   career.userMatches ??= [];
   career.roundOffers ??= [];
+  if (career.cup && career.fixtures) career.cupPending = nextCommitment(career).kind === "cup";
   staggerContracts(career);
   repairSchedule(career);
   for (const fixture of career.fixtures) fixture.date ??= leagueRoundDate(career.season, fixture.round);
@@ -651,23 +653,8 @@ function sortByTable(table: Standing[], career: Career): Standing[] {
   return sortTable(table.map((row) => ({ ...row, yellows: row.yellows ?? 0, reds: row.reds ?? 0, form: row.form ?? [] })), matches, career.seed);
 }
 
-const CUP_NEXT: Record<string, string | null> = {
-  "1ª fase": "Oitavas",
-  "Oitavas": "Quartas",
-  "Quartas": "Semi",
-  "Semi": "Final",
-  "Final": null,
-};
-
 function phaseAnchor(slot: string, leg: 1 | 2): number {
-  const anchors: Record<string, [number, number]> = {
-    "1ª fase": [2, 2],
-    "Oitavas": [6, 8],
-    "Quartas": [12, 14],
-    "Semi": [18, 20],
-    "Final": [26, 30],
-  };
-  return (anchors[slot] ?? [2, 2])[leg - 1];
+  return cupPhaseAnchor(slot, leg);
 }
 
 function userPlays(career: Career, phase: CupFixture[]): boolean {
@@ -675,10 +662,7 @@ function userPlays(career: Career, phase: CupFixture[]): boolean {
 }
 
 function cupReady(career: Career): boolean {
-  const phase = career.cup[career.cupRound];
-  if (!phase || phase.every((fixture) => fixture.played) || career.cupFinalPlayed) return false;
-  if (career.fixtures.length > 0 && career.fixtures.every((fixture) => fixture.played)) return true;
-  return career.round > phaseAnchor(phase[0].slot, phase[0].leg ?? 1);
+  return cupIsDue(career);
 }
 
 function rememberUserMatch(career: Career, userMatch: MatchResult, kind: "league" | "cup"): void {
@@ -768,7 +752,7 @@ function concludeCupPhase(career: Career, phase: CupFixture[], seed: number): vo
   }
   if (phase.some((fixture) => !fixture.winnerId)) return;
   const winners = phase.map((fixture) => fixture.winnerId).filter((id): id is string => Boolean(id));
-  const nextSlot = CUP_NEXT[phase[0].slot] ?? null;
+  const nextSlot = cupSlotAfter(phase[0].slot);
   if (!nextSlot) {
     career.cupChampion = winners[0];
     career.cupFinalPlayed = true;

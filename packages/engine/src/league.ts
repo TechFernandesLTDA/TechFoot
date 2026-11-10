@@ -347,13 +347,41 @@ export function resolveCup(
   return result;
 }
 
+const CUP_SLOT_NEXT: Record<string, string | null> = {
+  "1ª fase": "Oitavas",
+  "2ª fase": "Oitavas",
+  "Oitavas": "Quartas",
+  "3ª fase": "Quartas",
+  "Quartas": "Semi",
+  "4ª fase": "Semi",
+  "Semi": "Final",
+  "5ª fase": "Final",
+  "Final": null,
+  "F": null,
+};
+
+export function cupSlotAfter(slot: string): string | null {
+  if (Object.prototype.hasOwnProperty.call(CUP_SLOT_NEXT, slot)) return CUP_SLOT_NEXT[slot];
+  return null;
+}
+
+export function cupPhaseAnchor(slot: string, leg: 1 | 2): number {
+  const anchors: Record<string, [number, number]> = {
+    "1ª fase": [2, 2],
+    "Oitavas": [6, 8],
+    "Quartas": [12, 14],
+    "Semi": [18, 20],
+    "Final": [26, 30],
+  };
+  return (anchors[slot] ?? [2, 2])[leg - 1];
+}
+
 export function nextCupSlot(phaseGameCount: number): string {
-  if (phaseGameCount >= 30) return "2ª fase";
-  if (phaseGameCount >= 15) return "3ª fase";
-  if (phaseGameCount === 8) return "4ª fase";
-  if (phaseGameCount === 4) return "5ª fase";
-  if (phaseGameCount === 2) return "Final";
-  return "F";
+  if (phaseGameCount >= 30) return "Oitavas";
+  if (phaseGameCount >= 15) return "Quartas";
+  if (phaseGameCount === 8) return "Semi";
+  if (phaseGameCount === 4 || phaseGameCount === 2) return "Final";
+  return "Final";
 }
 
 export function resolvePenalties(

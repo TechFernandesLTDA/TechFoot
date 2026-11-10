@@ -7,7 +7,7 @@ import { buildApp } from "../src/server.ts";
 
 let app: FastifyInstance;
 
-async function registerAndSave() {
+async function registerAndSave(preferredClubId?: string) {
   const email = `live-${Date.now()}-${Math.random().toString(16).slice(2)}@test.co`;
   const registered = await app.inject({
     method: "POST",
@@ -17,7 +17,7 @@ async function registerAndSave() {
   assert.equal(registered.statusCode, 200);
   const cookie = String(registered.headers["set-cookie"]).split(";")[0];
   const world = await app.inject({ method: "GET", url: "/world" });
-  const clubId = world.json().clubs[0].id as string;
+  const clubId = preferredClubId ?? (world.json().clubs[0].id as string);
   const save = await app.inject({ method: "POST", url: "/saves", headers: { cookie }, payload: { clubId } });
   assert.equal(save.statusCode, 200);
   return { cookie, id: save.json().id as string, career: save.json().career };
@@ -97,6 +97,81 @@ describe("live match", () => {
     const pointsAgain = again.json().career.table.find((row: { clubId: string }) => row.clubId === again.json().career.clubId).points as number;
     assert.equal(pointsAgain, points);
     assert.equal(again.json().career.round, done.json().career.round);
+  });
+
+  it("commands the away side, keeps the interval and the whistle off live, and follows the cup commitment", async () => {
+    const { cookie, id, career } = await registerAndSave("vitoria");
+    const started = await app.inject({ method: "POST", url: `/saves/${id}/matchday`, headers: { cookie } });
+    assert.equal(started.statusCode, 200);
+    const first = started.json();
+    assert.equal(first.live.kind, "league");
+    assert.equal(first.live.userSide, "away");
+    assert.equal(first.live.away.clubId, "vitoria");
+    assert.equal(first.live.home.subsUsed, 0);
+    let version = first.live.version as number;
+    const jumped = await app.inject({
+      method: "POST",
+      url: `/live/${first.live.id}/advance`,
+      headers: { cookie },
+      payload: { toMinute: 200, version },
+    });
+    assert.equal(jumped.statusCode, 200);
+    assert.equal(jumped.json().live.period, "HT");
+    assert.equal(jumped.json().live.status, "halftime");
+    assert.equal(jumped.json().live.clock, "INTERVALO");
+    version = jumped.json().live.version;
+    const bench = jumped.json().live.away.bench[0] as string;
+    const out = (jumped.json().live.away.onPitch as string[]).find((playerId) => playerId !== jumped.json().live.away.players.find((player: { position: string; id: string }) => player.position === "GK")?.id);
+    const sub = await app.inject({
+      method: "POST",
+      url: `/live/${first.live.id}/command`,
+      headers: { cookie },
+      payload: { atMinute: jumped.json().live.minute, version, cmd: { type: "sub", outId: out, inId: bench } },
+    });
+    assert.equal(sub.statusCode, 200);
+    assert.equal(sub.json().live.away.subsUsed, 1);
+    assert.equal(sub.json().live.home.subsUsed, 0);
+    assert.equal(sub.json().live.status, "halftime");
+    version = sub.json().live.version;
+    const talk = await app.inject({
+      method: "POST",
+      url: `/live/${first.live.id}/command`,
+      headers: { cookie },
+      payload: { atMinute: jumped.json().live.minute, version, cmd: { type: "talk", talk: "motivar" } },
+    });
+    assert.equal(talk.statusCode, 200);
+    assert.equal(talk.json().live.period, "HT");
+    assert.equal(talk.json().live.status, "halftime");
+    version = talk.json().live.version;
+    const resumed = await app.inject({ method: "POST", url: `/live/${first.live.id}/resume`, headers: { cookie }, payload: { version } });
+    assert.equal(resumed.json().live.period, "2T");
+    assert.equal(resumed.json().live.status, "live");
+    version = resumed.json().live.version;
+    const ended = await app.inject({
+      method: "POST",
+      url: `/live/${first.live.id}/advance`,
+      headers: { cookie },
+      payload: { toMinute: 200, version },
+    });
+    assert.equal(ended.json().live.period, "FT");
+    assert.equal(ended.json().live.status, "fulltime");
+    assert.notEqual(ended.json().live.status, "live");
+
+    const cup = structuredClone(career) as typeof career & { round: number; cup: { homeId: string; awayId: string; played: boolean; singleLeg?: boolean }[][] };
+    cup.round = 3;
+    const rival = cup.clubs?.find((club: { id: string }) => club.id !== "vitoria");
+    if (cup.cup?.[0]?.[0] && rival) {
+      cup.cup[0][0].homeId = "vitoria";
+      cup.cup[0][0].awayId = rival.id;
+      cup.cup[0][0].played = false;
+    }
+    await prisma.save.update({ where: { id }, data: { payload: JSON.stringify(cup) } });
+    await prisma.liveMatch.deleteMany({ where: { saveId: id } });
+    const cupDay = await app.inject({ method: "POST", url: `/saves/${id}/matchday`, headers: { cookie } });
+    assert.equal(cupDay.statusCode, 200);
+    assert.equal(cupDay.json().live.kind, "cup");
+    assert.equal(cupDay.json().live.home.clubId, "vitoria");
+    assert.equal(cupDay.json().live.userSide, "home");
   });
 });
 

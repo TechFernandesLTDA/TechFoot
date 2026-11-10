@@ -11,6 +11,7 @@ import {
   updateAdmin, normalizeCareer, setMatchPlan,
   type Career,
 } from "./career.ts";
+import { isOpenLiveStatus } from "@techfoot/engine";
 import { advanceLive, commandLive, finishLive, liveSummary, readLive, resumeLive, startMatchday } from "./live-match.ts";
 import { publicSupportStatus, verifyPaymentSignature } from "./support.ts";
 import { assertReadyToListen, loadLocalEnv, sessionCookie, startupIssues, trustProxyOption } from "./config.ts";
@@ -452,7 +453,7 @@ app.post("/saves/:id/admin/loan", async (req) => {
 app.post("/saves/:id/simulate-round", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req) => {
   const { save, career } = await loadSave(req as never);
   const blocking = await prisma.liveMatch.findUnique({ where: { saveId: save.id } });
-  if (blocking && (blocking.status === "live" || blocking.status === "halftime")) throw httpError("Há um jogo em andamento", 409);
+  if (blocking && isOpenLiveStatus(blocking.status)) throw httpError("Há um jogo em andamento", 409);
   const { career: next, userMatch } = simulateRound(career);
   await prisma.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(next) } });
   return { career: next, userMatch };

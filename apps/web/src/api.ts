@@ -123,7 +123,8 @@ export type Club = {
   stadiumCapacity: number; cash: number; morale: number; division: 1 | 2 | 3; tactic: Tactic;
   rep: number; players: Player[];
 };
-export type InboxMessage = { id: string; kind: string; title: string; body: string; read: boolean };
+export type InboxKind = "info" | "contract" | "cup" | "season" | "board" | "market" | "evo" | "finance";
+export type InboxMessage = { id: string; kind: InboxKind; title: string; body: string; read: boolean };
 export type Career = {
   clubId: string; division: 1 | 2 | 3; season: number; round: number; tactic: Tactic; formation: Formation; captainId: string; starterIds: string[]; benchIds: string[];
   substitutions: { minute: number; playerOutId: string; playerInId: string }[];
@@ -143,12 +144,18 @@ export type Career = {
   history: SeasonRecord[];
   userMatches: UserMatchSummary[];
   seed: number;
+  contractsReady?: boolean;
+  roundOffers?: string[];
+  cupPending?: boolean;
 };
 export type SeasonRecord = { season: number; division: 1 | 2 | 3; position: number; points: number; played: number; cupChampionId?: string; prize: number; championId?: string; bestXi?: { name: string; position: string }[]; qualified?: { clubId: string; zone: string }[] };
 export type LivePlayer = { id: string; name: string; position: Position; fit: number; off: boolean; injured: boolean };
 export type LiveSide = { clubId: string; name: string; colors: string[]; tactic: Tactic; formation: Formation; onPitch: string[]; bench: string[]; subsUsed: number; windowsUsed: number; players: LivePlayer[] };
 export type LiveView = {
-  id: string; kind: string; round: number; status: string; version: number; minute: number; period: string;
+  id: string; kind: string; round: number; status: "live" | "halftime" | "fulltime" | "finished" | "abandoned" | string; version: number; minute: number; period: string;
+  phase?: "firstHalf" | "firstStoppage" | "halfTime" | "secondHalf" | "secondStoppage" | "penalties" | "fullTime" | "abandoned";
+  clock?: string;
+  userSide?: "home" | "away";
   stoppage: number; stoppagePlayed: number; score: [number, number]; momentum: number;
   shots: { home: number; away: number }; cards: { home: { yellow: number; red: number }; away: { yellow: number; red: number } };
   penalties: { home: number; away: number; winner: "home" | "away" } | null;

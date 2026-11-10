@@ -1,4 +1,4 @@
-import { applyCommand, applyResult, defaultStarters, initMatch, simulateMatch, sortTable, stepMinute, type MatchCommand, type MatchResult, type MatchState } from "@techfoot/engine";
+import { applyCommand, applyResult, defaultStarters, displayMinute, initMatch, isOpenLiveStatus, livePhase, nextCommitment, simulateMatch, sortTable, statusForPhase, stepMinute, userSideOf, type MatchCommand, type MatchResult, type MatchState } from "@techfoot/engine";
 import { applyCupResult, httpError, simulateRound, type Career } from "./career.ts";
 import { prisma } from "./db.ts";
 
@@ -99,6 +99,9 @@ function view(row: { id: string; kind: string; round: number; status: string; ve
     updatedAt: row.updatedAt,
     minute: state.minute,
     period: state.period,
+    phase: livePhase(state),
+    clock: displayMinute(state),
+    userSide: userSideOf(state),
     stoppage: state.stoppage,
     stoppagePlayed: state.stoppagePlayed,
     score: state.score,
@@ -121,7 +124,7 @@ async function owned(saveId: string, userId: string) {
 
 export async function settleIdle(saveId: string, userId: string): Promise<void> {
   const live = await prisma.liveMatch.findUnique({ where: { saveId } });
-  if (!live || (live.status !== "live" && live.status !== "halftime")) return;
+  if (!live || !isOpenLiveStatus(live.status)) return;
   if (Date.now() - live.updatedAt.getTime() < LIVE_IDLE_MS) return;
   await finishLive(saveId, userId, true);
 }
@@ -151,7 +154,7 @@ export async function startMatchday(saveId: string, userId: string) {
   await settleIdle(saveId, userId);
   const save = await owned(saveId, userId);
   const existing = await prisma.liveMatch.findUnique({ where: { saveId } });
-  if (existing && (existing.status === "live" || existing.status === "halftime")) {
+  if (existing && isOpenLiveStatus(existing.status)) {
     const envelope = parseEnvelope(existing.state);
     const resumedCareer = JSON.parse(save.payload) as Career;
     return { live: view(existing, envelope, JSON.parse(existing.otherGames) as OtherGame[], resumedCareer), events: envelope.state.events, career: resumedCareer };
@@ -161,26 +164,34 @@ export async function startMatchday(saveId: string, userId: string) {
   const map = new Map(career.clubs.map((club) => [club.id, club]));
   const me = map.get(career.clubId);
   if (!me) throw httpError("Clube não encontrado", 404);
-  if (career.cupPending) {
-    const tie = career.cup[career.cupRound]?.find((fixture) => !fixture.played && (fixture.homeId === career.clubId || fixture.awayId === career.clubId));
+  const commitment = nextCommitment(career);
+  if (commitment.kind === "seasonReview") throw httpError("Temporada encerrada", 409);
+  if (commitment.kind === "cup" && commitment.fixture) {
+    const tie = career.cup[career.cupRound]?.find((fixture) => !fixture.played && fixture.homeId === commitment.fixture!.homeId && fixture.awayId === commitment.fixture!.awayId)
+      ?? career.cup[career.cupRound]?.find((fixture) => !fixture.played && (fixture.homeId === career.clubId || fixture.awayId === career.clubId));
     if (!tie) throw httpError("Não há jogo de copa pendente", 409);
     const home = map.get(tie.homeId);
     const away = map.get(tie.awayId);
     if (!home || !away) throw httpError("Confronto inválido", 400);
-    const state = initMatch(sideFor(career, home), sideFor(career, away), career.seed + 8000 + career.cupRound, { kind: "cup", homeAi: false, awayAi: true, decider: tie.singleLeg === true });
+    const userHome = home.id === career.clubId;
+    const state = initMatch(sideFor(career, home), sideFor(career, away), career.seed + 8000 + career.cupRound, { kind: "cup", homeAi: !userHome, awayAi: userHome, decider: tie.singleLeg === true });
     const envelope: Envelope = { state, checkpoint: state, chunkFrom: 0 };
     const created = await prisma.liveMatch.create({
-      data: { saveId, kind: "cup", round: career.round, state: JSON.stringify(envelope), otherGames: "[]", status: "live", version: 1 },
+      data: { saveId, kind: "cup", round: career.round, state: JSON.stringify(envelope), otherGames: "[]", status: statusForPhase(livePhase(state)), version: 1 },
     });
     return { live: view(created, envelope, [], career), events: [], career };
   }
-  const roundGames = career.fixtures.filter((fixture) => fixture.round === career.round && !fixture.played);
-  const mine = roundGames.find((fixture) => fixture.homeId === career.clubId || fixture.awayId === career.clubId);
+  const roundNumber = commitment.fixture?.round ?? career.round;
+  const roundGames = career.fixtures.filter((fixture) => fixture.round === roundNumber && !fixture.played);
+  const mine = commitment.fixture
+    ? roundGames.find((fixture) => fixture.homeId === commitment.fixture?.homeId && fixture.awayId === commitment.fixture?.awayId)
+    : roundGames.find((fixture) => fixture.homeId === career.clubId || fixture.awayId === career.clubId);
   if (!mine) throw httpError("Rodada já simulada", 409);
   const home = map.get(mine.homeId);
   const away = map.get(mine.awayId);
   if (!home || !away) throw httpError("Confronto inválido", 400);
-  const state = initMatch(sideFor(career, home), sideFor(career, away), career.seed + career.round * 1000, { kind: "league", homeAi: false, awayAi: true });
+  const userHome = home.id === career.clubId;
+  const state = initMatch(sideFor(career, home), sideFor(career, away), career.seed + career.round * 1000, { kind: "league", homeAi: !userHome, awayAi: userHome });
   const others: OtherGame[] = [];
   let offset = 0;
   for (const fixture of roundGames) {
@@ -198,7 +209,7 @@ export async function startMatchday(saveId: string, userId: string) {
   }
   const envelope: Envelope = { state, checkpoint: structuredClone(state), chunkFrom: 0 };
   const created = await prisma.liveMatch.create({
-    data: { saveId, kind: "league", round: career.round, state: JSON.stringify(envelope), otherGames: JSON.stringify(others), status: "live", version: 1 },
+      data: { saveId, kind: "league", round: career.round, state: JSON.stringify(envelope), otherGames: JSON.stringify(others), status: statusForPhase(livePhase(state)), version: 1 },
   });
   return { live: view(created, envelope, others, career), events: [], career };
 }
@@ -237,10 +248,10 @@ export async function advanceLive(saveId: string, userId: string, toMinute: numb
   const save = await owned(saveId, userId);
   const career = JSON.parse(save.payload) as Career;
   const live = await prisma.liveMatch.findUnique({ where: { saveId } });
-  if (!live || (live.status !== "live" && live.status !== "halftime")) throw httpError("Não há jogo em andamento", 409);
+  if (!live || !isOpenLiveStatus(live.status)) throw httpError("Não há jogo em andamento", 409);
   if (live.version !== version) throw httpError("O jogo avançou em outro lugar. Atualize.", 409);
   const envelope = parseEnvelope(live.state);
-  if (envelope.state.period === "HT" || envelope.state.period === "FT") {
+  if (envelope.state.period === "HT" || envelope.state.period === "FT" || envelope.state.period === "PEN") {
     const others = JSON.parse(live.otherGames) as OtherGame[];
     return { live: view(live, envelope, others, career), events: [], replaceEvents: false };
   }
@@ -248,7 +259,7 @@ export async function advanceLive(saveId: string, userId: string, toMinute: numb
   envelope.chunkFrom = envelope.state.minute;
   const stepped = stepToward(envelope.state, toMinute);
   envelope.state = stepped.state;
-  const status = envelope.state.period === "HT" ? "halftime" : "live";
+  const status = statusForPhase(livePhase(envelope.state));
   const updated = await prisma.liveMatch.update({
     where: { id: live.id },
     data: { state: JSON.stringify(envelope), status, version: { increment: 1 } },
@@ -261,14 +272,14 @@ export async function commandLive(saveId: string, userId: string, atMinute: numb
   const save = await owned(saveId, userId);
   const career = JSON.parse(save.payload) as Career;
   const live = await prisma.liveMatch.findUnique({ where: { saveId } });
-  if (!live || (live.status !== "live" && live.status !== "halftime")) throw httpError("Não há jogo em andamento", 409);
+  if (!live || !isOpenLiveStatus(live.status)) throw httpError("Não há jogo em andamento", 409);
   if (live.version !== version) throw httpError("O jogo avançou em outro lugar. Atualize.", 409);
   const envelope = parseEnvelope(live.state);
   if (command.type === "resume" || envelope.state.period === "HT") {
     envelope.state = applyCommand(envelope.state, command);
     const updated = await prisma.liveMatch.update({
       where: { id: live.id },
-      data: { state: JSON.stringify(envelope), status: "live", version: { increment: 1 } },
+      data: { state: JSON.stringify(envelope), status: statusForPhase(livePhase(envelope.state)), version: { increment: 1 } },
     });
     const others = JSON.parse(updated.otherGames) as OtherGame[];
     return { live: view(updated, envelope, others, career), events: [], replaceEvents: false };
@@ -289,7 +300,7 @@ export async function commandLive(saveId: string, userId: string, atMinute: numb
     guard += 1;
   }
   envelope.state = state;
-  const status = state.period === "HT" ? "halftime" : state.period === "FT" ? "live" : live.status;
+  const status = statusForPhase(livePhase(state));
   const updated = await prisma.liveMatch.update({
     where: { id: live.id },
     data: { state: JSON.stringify(envelope), status, version: { increment: 1 } },
@@ -312,7 +323,10 @@ export async function finishLive(saveId: string, userId: string, withAi = false)
     const career = JSON.parse(save.payload) as Career;
     if (!live || live.status === "finished" || live.status === "abandoned") return { career, already: true, userMatch: career.lastRoundEvents };
     const envelope = parseEnvelope(live.state);
-    if (withAi) envelope.state.home.ai = true;
+    if (withAi) {
+      envelope.state.home.ai = true;
+      envelope.state.away.ai = true;
+    }
     let guard = 0;
     while (envelope.state.period !== "FT" && guard < 160) {
       if (envelope.state.period === "HT") envelope.state = applyCommand(envelope.state, { type: "resume" });
@@ -326,7 +340,7 @@ export async function finishLive(saveId: string, userId: string, withAi = false)
       simulateRound(career, [userMatch, ...others].map((result) => ({ homeId: result.homeId, awayId: result.awayId, result })));
     }
     await tx.save.update({ where: { id: save.id }, data: { payload: JSON.stringify(career) } });
-    await tx.liveMatch.update({ where: { id: live.id }, data: { status: "finished", state: JSON.stringify(envelope), version: { increment: 1 } } });
+    await tx.liveMatch.update({ where: { id: live.id }, data: { status: statusForPhase(livePhase(envelope.state), true), state: JSON.stringify(envelope), version: { increment: 1 } } });
     return { career, already: false, userMatch };
   });
 }

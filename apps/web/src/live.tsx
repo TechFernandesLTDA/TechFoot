@@ -1,25 +1,55 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Career, type LiveEvent, type LivePayload, type LiveView } from "./api";
+import { displayMinute } from "@techfoot/engine";
+import { api, type Career, type LiveEvent, type LivePayload, type LiveSide, type LiveView } from "./api";
 
 const SPEEDS = [1, 2, 4] as const;
+type Speed = (typeof SPEEDS)[number] | "jump";
 
-function clock(live: LiveView): string {
-  if (live.period === "HT") return "INTERVALO";
-  if (live.period === "FT") return "FIM";
-  if (live.stoppage > 0 && live.minute >= 45) return `${live.minute}+${live.stoppagePlayed || live.stoppage}`;
-  return `${live.minute}'`;
+function playbackKey(id: string): string {
+  return `techfoot.live.playback.${id}`;
+}
+
+function readPlayback(id: string): { paused: boolean; speed: Speed; autoPause: boolean } | null {
+  try {
+    const raw = sessionStorage.getItem(playbackKey(id));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { paused?: boolean; speed?: Speed; autoPause?: boolean };
+    const speed = parsed.speed === 2 || parsed.speed === 4 || parsed.speed === "jump" || parsed.speed === 1 ? parsed.speed : 1;
+    return { paused: parsed.paused === true, speed, autoPause: parsed.autoPause !== false };
+  } catch {
+    return null;
+  }
 }
 
 function playerName(live: LiveView, id?: string): string {
   return [...live.home.players, ...live.away.players].find((player) => player.id === id)?.name ?? "Jogador";
 }
 
+function matchClock(live: LiveView): string {
+  if (live.clock) return live.clock;
+  const period = live.period === "HT" || live.period === "FT" || live.period === "2T" || live.period === "PEN" ? live.period : "1T";
+  const winner = live.penalties?.winner === "home" || live.penalties?.winner === "away" ? live.penalties.winner : undefined;
+  return displayMinute({
+    minute: live.minute,
+    stoppage: live.stoppage,
+    stoppagePlayed: live.stoppagePlayed,
+    period,
+    penalties: winner ? { home: live.penalties?.home ?? 0, away: live.penalties?.away ?? 0, winner, kicks: [] } : undefined,
+  });
+}
+
+function mineSide(live: LiveView, clubId: string): LiveSide {
+  if (live.userSide === "away" || (live.userSide !== "home" && live.away.clubId === clubId)) return live.away;
+  return live.home;
+}
+
 export function LiveMatch({ initial, onCareer, onClose }: { initial: LivePayload; onCareer: (career: Career) => void; onClose: () => void }) {
+  const remembered = readPlayback(initial.live.id);
   const [live, setLive] = useState(initial.live);
   const [log, setLog] = useState<LiveEvent[]>(initial.events);
-  const [speed, setSpeed] = useState<(typeof SPEEDS)[number] | "jump">(1);
-  const [paused, setPaused] = useState(false);
-  const [autoPause, setAutoPause] = useState(true);
+  const [speed, setSpeed] = useState<Speed>(remembered?.speed ?? 1);
+  const [paused, setPaused] = useState(remembered?.paused ?? false);
+  const [autoPause, setAutoPause] = useState(remembered?.autoPause ?? true);
   const [goal, setGoal] = useState<LiveEvent | null>(null);
   const [tab, setTab] = useState<"narracao" | "estatisticas" | "rodada" | "time">("narracao");
   const [outId, setOutId] = useState<string | null>(null);
@@ -32,6 +62,15 @@ export function LiveMatch({ initial, onCareer, onClose }: { initial: LivePayload
 
   const names = useMemo(() => new Map(initial.career.clubs.map((club) => [club.id, club.name])), [initial.career.clubs]);
   const rounds = Math.max(...initial.career.fixtures.map((fixture) => fixture.round));
+  const mine = mineSide(live, initial.career.clubId);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(playbackKey(live.id), JSON.stringify({ paused, speed, autoPause }));
+    } catch {
+      /* a pausa continua nesta montagem */
+    }
+  }, [paused, speed, autoPause, live.id]);
 
   async function applyStep(step: { live: LiveView; events: LiveEvent[]; replaceEvents: boolean }) {
     setLive(step.live);
@@ -116,7 +155,7 @@ export function LiveMatch({ initial, onCareer, onClose }: { initial: LivePayload
     <div className={`live-shell ${sheet ? "is-sheet" : ""}`} data-testid="live-board">
       <header className="live-board">
         <div className="live-side"><i className="live-crest" style={{ background: homeColor }} />{live.home.name}</div>
-        <div className="live-score"><strong>{live.score[0]} × {live.score[1]}</strong><span>{clock(live)}</span></div>
+        <div className="live-score"><strong>{live.score[0]} × {live.score[1]}</strong><span>{matchClock(live)}</span></div>
         <div className="live-side live-side--away"><i className="live-crest" style={{ background: awayColor }} />{live.away.name}</div>
       </header>
       <div className="momentum" aria-label="Momento"><i style={{ width: `${momentum}%` }} /></div>
@@ -131,14 +170,14 @@ export function LiveMatch({ initial, onCareer, onClose }: { initial: LivePayload
       <div className="live-layout">
         <aside className={tab === "time" ? "is-active" : ""}>
           <h3>Seu time</h3>
-          {live.home.players.filter((player) => live.home.onPitch.includes(player.id)).map((player) => (
+          {mine.players.filter((player) => mine.onPitch.includes(player.id)).map((player) => (
             <button key={player.id} type="button" className={outId === player.id ? "is-selected" : ""} onClick={() => { setOutId(player.id); setSheet(true); }}>
               {player.name}<small>{player.fit}%</small>
               <i className="fit-bar"><b style={{ width: `${player.fit}%` }} /></i>
             </button>
           ))}
-          <h3>Banco · {live.home.subsUsed}/5</h3>
-          {live.home.players.filter((player) => live.home.bench.includes(player.id)).map((player) => (
+          <h3>Banco · {mine.subsUsed}/5</h3>
+          {mine.players.filter((player) => mine.bench.includes(player.id)).map((player) => (
             <button key={player.id} type="button" disabled={!outId} onClick={() => void substitute(player.id)}>{player.name}<small>{player.fit}%</small></button>
           ))}
         </aside>
@@ -155,12 +194,12 @@ export function LiveMatch({ initial, onCareer, onClose }: { initial: LivePayload
         {(["narracao", "estatisticas", "rodada", "time"] as const).map((item) => <button key={item} type="button" className={tab === item ? "is-active" : ""} onClick={() => setTab(item)}>{item === "narracao" ? "Narração" : item === "estatisticas" ? "Estatísticas" : item === "rodada" ? "Rodada" : "Time"}</button>)}
       </nav>
       {tab === "estatisticas" ? <p className="live-stats">Chutes {live.shots.home}–{live.shots.away} · Amarelos {live.cards.home.yellow}–{live.cards.away.yellow} · Vermelhos {live.cards.home.red}–{live.cards.away.red}</p> : null}
-      {sheet && outId ? <div className="sub-sheet" data-testid="sub-sheet"><p>Sai {playerName(live, outId)}. Escolha quem entra.</p>{live.home.players.filter((player) => live.home.bench.includes(player.id)).map((player) => <button key={player.id} type="button" data-testid="sub-confirm" onClick={() => void substitute(player.id)}>{player.name} · {player.fit}%</button>)}</div> : null}
+      {sheet && outId ? <div className="sub-sheet" data-testid="sub-sheet"><p>Sai {playerName(live, outId)}. Escolha quem entra.</p>{mine.players.filter((player) => mine.bench.includes(player.id)).map((player) => <button key={player.id} type="button" data-testid="sub-confirm" onClick={() => void substitute(player.id)}>{player.name} · {player.fit}%</button>)}</div> : null}
       {live.period === "HT" && !finished ? (
         <section className="half-time" data-testid="half-time">
           <h2>Intervalo</h2>
           <p>Chutes {live.shots.home} a {live.shots.away}. Melhor momento: {motm?.name}.</p>
-          <p>Cansados: {live.home.players.filter((player) => live.home.onPitch.includes(player.id) && player.fit < 70).map((player) => player.name).join(", ") || "ninguém abaixo de 70%."}</p>
+          <p>Cansados: {mine.players.filter((player) => mine.onPitch.includes(player.id) && player.fit < 70).map((player) => player.name).join(", ") || "ninguém abaixo de 70%."}</p>
           <div className="talks">
             {(["calma", "cobrar", "motivar"] as const).map((item) => <button key={item} type="button" className={talk === item ? "is-selected" : ""} onClick={() => setTalk(item)}>{item}</button>)}
           </div>

@@ -95,6 +95,69 @@ export type MatchCommand =
   | { type: "talk"; talk: "calma" | "cobrar" | "motivar" }
   | { type: "resume" };
 
+export type LivePhase =
+  | "firstHalf"
+  | "firstStoppage"
+  | "halfTime"
+  | "secondHalf"
+  | "secondStoppage"
+  | "penalties"
+  | "fullTime"
+  | "abandoned";
+
+export type StoredLiveStatus = "live" | "halftime" | "fulltime" | "finished" | "abandoned";
+
+export type ClockState = Pick<MatchState, "period" | "minute" | "stoppage" | "stoppagePlayed" | "penalties">;
+
+export function livePhase(state: ClockState): LivePhase {
+  if (state.period === "HT") return "halfTime";
+  if (state.period === "PEN") return "penalties";
+  if (state.period === "FT") return state.penalties ? "penalties" : "fullTime";
+  const added = state.stoppage > 0 && ((state.period === "1T" && state.minute >= 45) || (state.period === "2T" && state.minute >= 90));
+  if (state.period === "2T") return added ? "secondStoppage" : "secondHalf";
+  return added ? "firstStoppage" : "firstHalf";
+}
+
+export function statusForPhase(phase: LivePhase, committed = false): StoredLiveStatus {
+  if (phase === "abandoned") return "abandoned";
+  if (phase === "halfTime") return "halftime";
+  if (phase === "fullTime" || phase === "penalties") return committed ? "finished" : "fulltime";
+  return "live";
+}
+
+export function isOpenLiveStatus(status: string): boolean {
+  return status === "live" || status === "halftime" || status === "fulltime";
+}
+
+export function userSideOf(state: Pick<MatchState, "home" | "away">): "home" | "away" {
+  if (state.home.ai !== state.away.ai) return state.home.ai ? "away" : "home";
+  return "home";
+}
+
+export function enterStoppage(state: MatchState, minutes: number): void {
+  state.stoppage = minutes;
+}
+
+export function endFirstHalf(state: MatchState): void {
+  state.period = "HT";
+}
+
+export function resumeSecondHalf(state: MatchState): void {
+  if (state.period !== "HT") return;
+  state.period = "2T";
+  state.stoppage = 0;
+  state.stoppagePlayed = 0;
+}
+
+export function beginShootout(state: MatchState, pens: { home: number; away: number; winner: "home" | "away" }): void {
+  state.penalties = { ...pens, kicks: [] };
+  state.period = "PEN";
+}
+
+export function finishMatch(state: MatchState): void {
+  state.period = "FT";
+}
+
 const GOAL_LINES = [
   "GOOOL! {p} marca para o {team}.",
   "É gol de {p}! O {team} chega a {score}.",
@@ -474,31 +537,28 @@ function fatigue(side: LiveSide): void {
 
 export function applyCommand(state: MatchState, command: MatchCommand): MatchState {
   const next = structuredClone(state);
+  const mine = userSideOf(next);
   if (command.type === "resume") {
-    if (next.period === "HT") {
-      next.period = "2T";
-      next.stoppage = 0;
-      next.stoppagePlayed = 0;
-    }
+    resumeSecondHalf(next);
     return next;
   }
   if (next.period === "FT" || next.period === "PEN") return next;
   if (command.type === "talk") {
     if (next.period !== "HT") return next;
     const boost = command.talk === "motivar" ? 0.04 : command.talk === "cobrar" ? 0.03 : -0.02;
-    next.home.talk = boost;
+    next[mine].talk = boost;
     next.momentum = Math.max(-100, Math.min(100, next.momentum + (command.talk === "calma" ? -12 : 10)));
     return next;
   }
   if (command.type === "tactic") {
-    next.home.tactic = command.tactic;
+    next[mine].tactic = command.tactic;
     return next;
   }
   if (command.type === "formation") {
-    next.home.formation = command.formation;
+    next[mine].formation = command.formation;
     return next;
   }
-  applySub(next, "home", command.outId, command.inId);
+  applySub(next, mine, command.outId, command.inId);
   return next;
 }
 
@@ -507,23 +567,22 @@ function finishHalf(state: MatchState): void {
     if (state.stoppage === 0) {
       const rollStoppage = rngStep(state.sim);
       state.sim = rollStoppage.state;
-      state.stoppage = 1 + Math.floor(rollStoppage.value * 5);
+      enterStoppage(state, 1 + Math.floor(rollStoppage.value * 5));
     }
     if (state.stoppagePlayed < state.stoppage) return;
-    state.period = "HT";
+    endFirstHalf(state);
     return;
   }
   if (state.minute >= 90 && state.period === "2T") {
     if (state.stoppage === 0) {
       const rollStoppage = rngStep(state.sim);
       state.sim = rollStoppage.state;
-      state.stoppage = 2 + Math.floor(rollStoppage.value * 7);
+      enterStoppage(state, 2 + Math.floor(rollStoppage.value * 7));
     }
     if (state.stoppagePlayed < state.stoppage) return;
     if (state.kind === "cup" && state.decider && state.score[0] === state.score[1]) {
       const pens = resolvePenalties(30, 30, state.sim);
-      state.penalties = { ...pens, kicks: [] };
-      state.period = "FT";
+      beginShootout(state, pens);
       pushEvent(state, {
         minute: 90,
         kind: "whistle",
@@ -533,9 +592,10 @@ function finishHalf(state: MatchState): void {
         vars: { score: `${pens.home} a ${pens.away}` },
         stoppage: state.stoppage,
       });
+      finishMatch(state);
       return;
     }
-    state.period = "FT";
+    finishMatch(state);
     pushEvent(state, {
       minute: 90,
       kind: "whistle",
@@ -766,9 +826,11 @@ export function simulateMatch(home: Side, away: Side, seed: number): MatchResult
   };
 }
 
-export function displayMinute(state: MatchState): string {
-  if (state.period === "HT") return "INTERVALO";
-  if (state.period === "FT") return "FIM";
+export function displayMinute(state: ClockState): string {
+  const phase = livePhase(state);
+  if (phase === "halfTime") return "INTERVALO";
+  if (phase === "penalties") return "PÊNALTIS";
+  if (phase === "fullTime") return "FIM";
   if (state.stoppagePlayed > 0) return `${state.minute}+${state.stoppagePlayed}`;
-  return String(state.minute);
+  return `${state.minute}'`;
 }

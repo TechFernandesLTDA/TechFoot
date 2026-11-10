@@ -152,9 +152,11 @@ export interface LedgerEntry {
   amount: number;
 }
 
+export type InboxKind = "info" | "contract" | "cup" | "season" | "board" | "market" | "evo" | "finance";
+
 export interface InboxMessage {
   id: string;
-  kind: string;
+  kind: InboxKind;
   title: string;
   body: string;
   read: boolean;
